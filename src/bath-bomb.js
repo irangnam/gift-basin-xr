@@ -256,15 +256,21 @@ export class BathBombs {
       this.fx.addTint(b.avg, dt * 0.02 * rate);
       this.fx.setBomb(p, r, rate);
       this.fx.pulseMagic(b.avg, 0.2 + 0.3 * rate);
+      // 배스밤 둘레에서 톡톡 터지는 잔 탄산 기포 (가끔)
+      if (Math.random() < rate * 0.35) {
+        const a = Math.random() * Math.PI * 2, rr = r * (1.0 + Math.random() * 0.5);
+        this.fx.bubbles.spawn(p.x + Math.cos(a) * rr, Y + 0.0015, p.z + Math.sin(a) * rr, Math.cos(a) * 0.01, 0, Math.sin(a) * 0.01,
+          { size: 0.0015 + Math.random() * 0.0015, life: 0.2 + Math.random() * 0.3, kind: 0, drag: 3 });
+      }
       // 부스러져 떨어지는 가루 조각 (배스밤 색, 물에 닿으면 가라앉아 사라짐)
-      if (Math.random() < rate * dt * 0.8) {
+      if (Math.random() < rate * dt * 2) {
         const a = Math.random() * Math.PI * 2, c = b.mesh.material.userData.u.uSpeck.value;
         const sh = new THREE.Color(b.preset.shell);
         const cc = Math.random() < 0.3 ? c : sh;
         this.fx.bubbles.spawn(p.x + Math.cos(a) * r * 0.9, p.y + r * 0.2, p.z + Math.sin(a) * r * 0.9, Math.cos(a) * 0.02, 0.02, Math.sin(a) * 0.02,
           { color: [cc.r, cc.g, cc.b], size: 0.0025 + Math.random() * 0.002, life: 1.2, kind: 1, grav: 0.4, drag: 2, floorY: Y - 0.004 });
       }
-      if (false) {
+      if (Math.random() < rate * dt * 0.7) {
         const c = b.dye[Math.floor(Math.random() * b.dye.length)];
         this.fx.sparks.spawn(p.x + (Math.random() - 0.5) * r, Y + 0.01, p.z + (Math.random() - 0.5) * r,
           (Math.random() - 0.5) * 0.015, 0.03 + Math.random() * 0.04, (Math.random() - 0.5) * 0.015,
@@ -293,8 +299,8 @@ export class BathBombs {
     const u = sim.toUv(m.position.x, m.position.z, _u), ru = sim.len(BOMB.radius);
     sim.addWave(u.x, u.y, ru * 1.6, -0.05 * Math.min(1.5, speed / 2));
     sim.addSwirl(u.x, u.y, ru * 3, 0.18, 0);
-    const c = b.dye[0]; sim.addDye(u.x, u.y, ru * 1.4, c.r * 0.25, c.g * 0.25, c.b * 0.25, 0.25);
-    for (let k = 0; k < 8; k++) {
+    const c = b.dye[0]; sim.addDye(u.x, u.y, ru * 1.5, c.r * 0.38, c.g * 0.38, c.b * 0.38, 0.38);
+    for (let k = 0; k < 14; k++) {
       const a = Math.random() * Math.PI * 2, s = 0.25 + Math.random() * 0.55 * Math.min(1.5, speed / 2);
       fx.bubbles.spawn(m.position.x + Math.cos(a) * 0.02, Y + 0.01, m.position.z + Math.sin(a) * 0.02,
         Math.cos(a) * s * 0.45, 0.6 + Math.random() * 0.9 * Math.min(1.5, speed / 2), Math.sin(a) * s * 0.45,

@@ -125,7 +125,7 @@ void main() {
   vec2 gp = vec2(wp.x * 80.0, wp.y * 120.0) + n.xz * 10.0;
   float gn = vnoise(gp + vec2(t * 0.9, t * 0.35)) * 0.7 + vnoise(gp * 1.9 - vec2(t * 0.6, 0.0)) * 0.3;
   float lit = smoothstep(0.1, 0.8, pow(max(dot(n, H), 0.0), 12.0));
-  float glint = smoothstep(0.74, 0.76, gn) * (0.15 + 0.85 * lit) * (1.0 - uMilk) * (1.0 - smoothstep(0.03, 0.2, max(max(d1.r, d1.g), d1.b) + texture2D(uDye, uv).a));
+  float glint = smoothstep(0.74, 0.76, gn) * (0.15 + 0.85 * lit) * (1.0 - uMilk * 0.6) * (1.0 - 0.6 * smoothstep(0.03, 0.2, max(max(d1.r, d1.g), d1.b) + texture2D(uDye, uv).a));
   col = mix(col, vec3(1.0, 1.0, 0.96), glint * 0.92);
 
   // 거품
@@ -151,6 +151,18 @@ void main() {
     float shade = 0.96 + 0.08 * soft;
     vec3 fc = mix(vec3(0.99, 0.975, 0.965), mix(vec3(0.99, 0.97, 0.96), pc1, 0.22), clamp(den1, 0.0, 1.0) * (1.0 - cov * 0.6)) * shade;
     col = mix(col, fc, cov * 0.9);
+    // 기포 결 (은은하게): 얇은 가장자리에서 더 보이고, 두꺼운 가운데는 거의 매끈
+    vec2 fv = clamp(texture2D(uVel, uv).xy / uVelRes * 2.0 * uR, -0.12, 0.12);
+    float ph0 = fract(t * 0.2), wb = abs(1.0 - 2.0 * ph0);
+    vec4 fs = mix(foamSample(Pxz - fv * ph0 * 5.0, t), foamSample(Pxz - fv * fract(t * 0.2 + 0.5) * 5.0 + vec2(0.031, 0.017), t), wb);
+    vec3 nb = normalize(vec3((fs.r * 2.0 - 1.0) * 1.4, 1.0, (fs.g * 2.0 - 1.0) * 1.4));
+    float edge = smoothstep(0.05, 0.3, T) * (1.0 - smoothstep(0.45, 0.85, T));
+    float rim = smoothstep(0.08, 0.4, 1.0 - nb.y) * step(0.12, fs.b);
+    col = mix(col, vec3(1.0, 0.99, 0.98), rim * (0.25 + 0.35 * edge));
+    col *= 1.0 - 0.05 * (1.0 - smoothstep(0.02, 0.2, fs.b)) * cov;
+    // 보글보글 (드문드문, 약하게)
+    float bo = boil(Pxz * 150.0, t, clamp(foam * 0.3, 0.0, 0.4));
+    col = mix(col, vec3(1.0, 0.995, 0.985), smoothstep(0.0, 0.6, bo) * 0.25 * cov);
   }
   float aBase = mix(0.08, 0.6, smoothstep(0.0, 0.9, depth));
   aBase = mix(aBase, 0.96, max(uMilk, clamp(den1 * 1.2, 0.0, 1.0)));
@@ -488,7 +500,7 @@ export class BasinWaterFX {
       }
     }
     // 은은한 빛 알갱이 (늘)
-    if (false) {
+    if (Math.random() < dt * 0.6) {
       const a = Math.PI + Math.random() * Math.PI, r = Math.random() * sim.radius * 0.85;
       const col = S.magicAmt > 0.1 ? [this.magic.r, this.magic.g, this.magic.b] : [1, 0.82, 0.5];
       this.sparks.spawn(sim.center.x + Math.cos(a) * r, this.surfaceY + 0.02, sim.center.z - Math.sin(a) * r * 0.9 + 0.02,
