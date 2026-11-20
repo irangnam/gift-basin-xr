@@ -104,13 +104,13 @@ void main() {
   body = mix(body, uTint, uTintAmt);
   // 번지는 물감
   float den2 = max(max(d2.r, d2.g), d2.b), den1 = max(max(d1.r, d1.g), d1.b);
-  vec3 pc2 = mix(d2.rgb / max(den2, 1e-3), vec3(0.98, 0.96, 0.95), 0.5);
+  vec3 pc2 = mix(d2.rgb / max(den2, 1e-3), vec3(0.9, 0.88, 0.88), 0.35) * 0.84;
   body = mix(body, pc2 * 0.88, (1.0 - exp(-den2 * 1.1)) * 0.8);
-  vec3 pc1 = mix(d1.rgb / max(den1, 1e-3), vec3(0.98, 0.96, 0.95), 0.45);
-  body = mix(body, pc1, (1.0 - exp(-den1 * 2.0)) * 0.85);
+  vec3 pc1 = mix(d1.rgb / max(den1, 1e-3), vec3(0.88, 0.86, 0.86), 0.45) * 0.88;
+  body = mix(body, pc1, (1.0 - exp(-den1 * 2.0)) * 0.75);
   // 마법 빛 (가운데 금빛 + 배스밤 색 반응)
-  body += vec3(1.0, 0.84, 0.52) * uGlow * depth * 0.07;
-  body += uMagic * uMagicAmt * depth * 0.03;
+  body += vec3(1.0, 0.84, 0.52) * uGlow * depth * 0.02;
+  
 
   // 따뜻한 방 반사
   vec3 Rf = reflect(-V, n);
@@ -125,7 +125,7 @@ void main() {
   vec2 gp = vec2(wp.x * 80.0, wp.y * 120.0) + n.xz * 10.0;
   float gn = vnoise(gp + vec2(t * 0.9, t * 0.35)) * 0.7 + vnoise(gp * 1.9 - vec2(t * 0.6, 0.0)) * 0.3;
   float lit = smoothstep(0.1, 0.8, pow(max(dot(n, H), 0.0), 12.0));
-  float glint = smoothstep(0.74, 0.76, gn) * (0.15 + 0.85 * lit) * (1.0 - uMilk * 0.7);
+  float glint = smoothstep(0.74, 0.76, gn) * (0.15 + 0.85 * lit) * (1.0 - uMilk) * (1.0 - smoothstep(0.03, 0.2, max(max(d1.r, d1.g), d1.b) + texture2D(uDye, uv).a));
   col = mix(col, vec3(1.0, 1.0, 0.96), glint * 0.92);
 
   // 거품
@@ -143,36 +143,15 @@ void main() {
   float fz = smoothstep(1.0, 0.1, length(fd));
   float A = clamp(foam * 1.1 + fz * 0.8, 0.0, 1.0);
   if (A > 0.02) {
-    // 텍스처 기포 두 겹 (작은 · 큰, 서로 돌려서 반복 티 안 나게), 아주 천천히 밀려감
-    // 물 흐름을 따라 거품 무늬가 흘러감 (플로우맵: 두 위상을 엇갈려 섞어 늘어나지 않게)
-    vec2 fv = clamp(texture2D(uVel, uv).xy / uVelRes * 2.0 * uR, -0.12, 0.12);
-    float ph0 = fract(t * 0.2), ph1 = fract(t * 0.2 + 0.5), wb = abs(1.0 - 2.0 * ph0);
-    vec2 P0 = Pxz - fv * ph0 * 5.0, P1 = Pxz - fv * ph1 * 5.0 + vec2(0.031, 0.017);
-    vec4 fs0 = foamSample(P0, t), fs1 = foamSample(P1, t);
-    vec4 fs = mix(fs0, fs1, wb);
-    vec4 f1 = fs, f2 = fs;
-    float h = fs.b;
-    // 두께: 얇으면 큰 기포 꼭대기만, 두꺼우면 빈틈없이
-    float T = A;
-    float thr = mix(0.8, -0.25, smoothstep(0.0, 0.85, T));
-    float cov = smoothstep(thr, thr + 0.1, h);
-    vec3 nb = normalize(vec3((fs.r * 2.0 - 1.0) * 1.4, 1.0, (fs.g * 2.0 - 1.0) * 1.4));
-    // 다중 산란: 회색 그늘 없이 늘 밝음. 틈은 물 색이 살짝 비친 크림색
-    float wrapL = 0.86 + 0.14 * dot(nb, uLightDir);
-    float crev = 1.0 - smoothstep(0.05, 0.4, h);
-    vec3 cream = mix(vec3(1.0, 0.975, 0.955), mix(vec3(1.0, 0.97, 0.95), pc1, 0.35), clamp(den1 * 1.5, 0.0, 1.0) * crev);
-    vec3 fc = cream * wrapL;
-    fc += uLightCol * pow(max(dot(nb, normalize(uLightDir + V)), 0.0), 90.0) * 0.28;   // 기포 표면 반짝
-    // 얇은 거품: 기포 가운데는 물이 비치고 테두리만 하얗게 → 두꺼울수록 불투명
-    float rim = 1.0 - nb.y;
-    float opaque = smoothstep(0.3, 0.75, T);
-    float alpha = mix(0.35 + 0.65 * smoothstep(0.05, 0.35, rim), 1.0, opaque);
-    col = mix(col, fc, cov * alpha * smoothstep(0.02, 0.12, T));
-    // 보글보글: 거품 속에서 기포가 부풀었다가 톡 터짐
-    float bo = boil(Pxz * 150.0, t, clamp(foam * 0.7, 0.0, 0.9));
-    col = mix(col, vec3(1.0, 0.995, 0.985) * (0.94 + 0.12 * bo), smoothstep(0.0, 0.6, bo) * 0.55 * opaque);
+    // 면으로 보이는 부드러운 거품: 점 · 기포 없이, 두께에 따라 매끈하게 덮이고 가장자리는 구름처럼 풀림
+    float soft = vnoise(Pxz * 18.0 + t * 0.02) * 0.6 + vnoise(Pxz * 42.0 - t * 0.015) * 0.4;
+    float T = clamp(A * (0.85 + 0.3 * soft), 0.0, 1.0);
+    float cov = smoothstep(0.08, 0.55, T);
+    // 아주 완만한 볼록함만 (밝기 차 ±4%)
+    float shade = 0.96 + 0.08 * soft;
+    vec3 fc = mix(vec3(0.99, 0.975, 0.965), mix(vec3(0.99, 0.97, 0.96), pc1, 0.22), clamp(den1, 0.0, 1.0) * (1.0 - cov * 0.6)) * shade;
+    col = mix(col, fc, cov * 0.9);
   }
-
   float aBase = mix(0.08, 0.6, smoothstep(0.0, 0.9, depth));
   aBase = mix(aBase, 0.96, max(uMilk, clamp(den1 * 1.2, 0.0, 1.0)));
   gl_FragColor = vec4(col, max(max(mix(aBase, 1.0, fres), glint), rimRef * 0.45));
@@ -230,7 +209,7 @@ void main() {
   float ang = atan(vW.z - uC.z, vW.x - uC.x);
   float rays = 0.55 + 0.45 * sin(ang * 13.0 + vW.y * 7.0 - uTime * 1.2) * sin(ang * 7.0 - uTime * 0.7 + 1.7);
   vec3 col = mix(vec3(1.0, 0.80, 0.48), uMagic, uMagicAmt);
-  gl_FragColor = vec4(col * a * rays * (0.07 + 0.12 * uBoost), 1.0);
+  gl_FragColor = vec4(col * a * rays * (0.03 + 0.04 * uBoost), 1.0);
 }`;
 
 const PT_VERT = /* glsl */`
@@ -509,7 +488,7 @@ export class BasinWaterFX {
       }
     }
     // 은은한 빛 알갱이 (늘)
-    if (Math.random() < dt * 1.5) {
+    if (false) {
       const a = Math.PI + Math.random() * Math.PI, r = Math.random() * sim.radius * 0.85;
       const col = S.magicAmt > 0.1 ? [this.magic.r, this.magic.g, this.magic.b] : [1, 0.82, 0.5];
       this.sparks.spawn(sim.center.x + Math.cos(a) * r, this.surfaceY + 0.02, sim.center.z - Math.sin(a) * r * 0.9 + 0.02,

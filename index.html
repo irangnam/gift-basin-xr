@@ -54,9 +54,10 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
-import { BasinSim } from './src/basin-sim.js?v=25';
-import { BasinWaterFX } from './src/basin-water.js?v=25';
-import { BathBombs, BasinAudio, BOMB_PRESETS, BOMB } from './src/bath-bomb.js?v=25';
+import { applyMetaHandStyle } from './src/meta-hand.js?v=1';
+import { BasinSim } from './src/basin-sim.js?v=27';
+import { BasinWaterFX } from './src/basin-water.js?v=27';
+import { BathBombs, BasinAudio, BOMB_PRESETS, BOMB } from './src/bath-bomb.js?v=27';
 
 const MODEL_V = 1;
 const qs = new URLSearchParams(location.search);
@@ -200,7 +201,7 @@ renderer.domElement.addEventListener('pointermove', (e) => {
 addEventListener('pointerup', () => { mouse.down = false; controls.enabled = true; mouse.stir.reset(); });
 
 // ---------------------------------------------------------------- VR: 컨트롤러 · 손
-const ctrlFactory = new XRControllerModelFactory(), handFactory = new XRHandModelFactory();
+const ctrlFactory = new XRControllerModelFactory(), handFactory = new XRHandModelFactory(null, applyMetaHandStyle);   // 퀘스트 스타일 외곽선 손
 handFactory.setPath(new URL('./models/hands/', location.href).href);
 const xrs = [];
 for (let i = 0; i < 2; i++) {
@@ -262,6 +263,7 @@ renderer.setAnimationLoop(() => {
   if (acc > 0.5) { fpsEl.textContent = `${Math.round(frames / acc)} fps · ${quality}`; frames = 0; acc = 0; }
 });
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+window.__applyMetaHandStyle = applyMetaHandStyle;
 window.__basin = { sim, fx, bombs, dropBomb, camera, controls, BOMB_PRESETS, setPreset: (i) => (presetIdx = i) };
 </script>
 </body>
