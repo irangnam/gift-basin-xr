@@ -97,16 +97,9 @@ void main() {
 
   // ---- 물빛: 은은하게 푸른, 가볍고 맑은 물. 무늬는 둥글고 유기적이며 물 흐름을 따라 흘러가고 물결에 일그러짐
   vec3 cDeep = vec3(0.30, 0.60, 0.62), cMid = vec3(0.46, 0.74, 0.73), cLight = vec3(0.80, 0.93, 0.88), cBlue = vec3(0.38, 0.58, 0.70);
-  vec2 fvw = clamp(texture2D(uVel, uv).xy / uVelRes * 2.0 * uR, -0.12, 0.12);
-  float fph0 = fract(t * 0.15), fph1 = fract(t * 0.15 + 0.5), fwb = abs(1.0 - 2.0 * fph0);
   vec2 wp = vW.xz + n.xz * 0.09;
-  vec3 pa = waterPat(wp - fvw * fph0 * 6.0, t), pb = waterPat(wp - fvw * fph1 * 6.0 + vec2(0.043, 0.027), t);
-  vec3 pt = mix(pa, pb, fwb);
   vec3 body = mix(cMid, cDeep, smoothstep(0.2, 0.95, depth) * 0.7);
   body = mix(vec3(0.78, 0.90, 0.84), body, smoothstep(0.02, 0.55, depth));
-  body = mix(body, cBlue, pt.y * 0.3 * depth);
-  body = mix(body, cLight, pt.x * 0.45);
-  body = mix(body, vec3(0.9, 0.98, 0.95), pt.z * 0.3);
   // 녹은 배스밤이 물 전체를 물들임 (뽀얗게)
   body = mix(body, uTint, uTintAmt);
   // 번지는 물감
