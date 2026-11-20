@@ -55,9 +55,9 @@ import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 import { applyMetaHandStyle } from './src/meta-hand.js?v=1';
-import { BasinSim } from './src/basin-sim.js?v=28';
-import { BasinWaterFX } from './src/basin-water.js?v=28';
-import { BathBombs, BasinAudio, BOMB_PRESETS, BOMB } from './src/bath-bomb.js?v=28';
+import { BasinSim } from './src/basin-sim.js?v=36';
+import { BasinWaterFX } from './src/basin-water.js?v=36';
+import { BathBombs, BasinAudio, BOMB_PRESETS, BOMB } from './src/bath-bomb.js?v=36';
 
 const MODEL_V = 1;
 const qs = new URLSearchParams(location.search);
@@ -154,6 +154,7 @@ class Stirrer {
       if (inside && !this.inWater) {                          // 첨벙: 들어가는 빠르기만큼
         const s = Math.min(1.5, Math.abs(vy) * 0.8 + sp * 0.4 + 0.15);
         sim.addWave(u.x, u.y, 0.025, -0.018 * s); sim.addDye(u.x, u.y, 0.02, 0, 0, 0, 0.08 * s);
+        fx.agitate(0.25 * s);
         if (this.cool === 0) { audio.splash(s); haptic(this.src, 0.4 * s, 40); this.cool = 0.15; }
         for (let k = 0; k < 3 * s; k++) {
           const a = Math.random() * 6.283, v = 0.2 + Math.random() * 0.4;
@@ -165,6 +166,7 @@ class Stirrer {
         const k = Math.min(1, sp / 1.2);
         sim.addVel(u.x, u.y, 0.035, sim.len(vx) * 0.4, sim.len(vz) * 0.4);
         bombs.push(p, vx, vz);
+        fx.agitate(Math.min(1.5, sp) * dt * 1.2);
         sim.addWave(u.x, u.y, 0.018, -0.004 * k - 0.0008);
         if (sp > 0.3) sim.addDye(u.x, u.y, 0.02, 0, 0, 0, 0.012 * k);
         if (sp > 0.8 && Math.random() < k * 0.25) {

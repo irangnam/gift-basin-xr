@@ -26,7 +26,7 @@ uniform vec3 uTint, uMagic, uLightDir, uLightCol;
 uniform vec4 uBomb;   // xyz 위치, w 거품 꽃 세기
 uniform vec4 uFall;   // 물줄기 닿는 곳 xyz, w 반지름
 uniform sampler2D uFoamTex, uVel;
-uniform float uVelRes;
+uniform float uVelRes, uRimFoam, uWallZ;
 uniform float uBombR;
 varying vec3 vW;
 ${NOISE}
@@ -141,22 +141,31 @@ void main() {
   }
   vec2 fd = (Pxz - uFall.xz) / vec2(uFall.w * 1.6, uFall.w);
   float fz = smoothstep(1.0, 0.1, length(fd));
-  float A = clamp(foam * 1.1 + fz * 0.8, 0.0, 1.0);
+  // 테두리 거품 띠: 테두리 · 뒷벽까지 거리 (m), 띠 폭은 쌓인 양에 따라, 안쪽 경계는 불규칙
+  float dRim = min(uR - length(vW.xz - uC.xz), vW.z - uWallZ);
+  float ang2 = atan(vW.z - uC.z, vW.x - uC.x);
+  float wob = vnoise(vec2(ang2 * 9.0 + vW.x * 30.0, t * 0.05)) * 0.6 + vnoise(vec2(ang2 * 23.0 - vW.z * 40.0, 3.0 + t * 0.04)) * 0.4;
+  float bandW = uRimFoam * (0.008 + 0.035 * wob);
+  float clump = vnoise(vec2(ang2 * 14.0, t * 0.03)) * 0.5 + vnoise(vW.xz * 70.0 + t * 0.02) * 0.5;
+  float band = smoothstep(bandW * 1.8 + 0.008, 0.0, dRim - 0.008) * (0.35 + 0.45 * clump) * smoothstep(0.0, 0.1, uRimFoam);
+  float A = clamp(foam * 1.1 + fz * 0.8 + band, 0.0, 1.0);
+  float foamCov = 0.0;
   if (A > 0.02) {
     // 면으로 보이는 부드러운 거품: 점 · 기포 없이, 두께에 따라 매끈하게 덮이고 가장자리는 구름처럼 풀림
     float soft = vnoise(Pxz * 18.0 + t * 0.02) * 0.6 + vnoise(Pxz * 42.0 - t * 0.015) * 0.4;
     float T = clamp(A * (0.85 + 0.3 * soft), 0.0, 1.0);
-    float cov = smoothstep(0.08, 0.55, T);
+    float cov = smoothstep(0.12, 0.55, T);
     // 아주 완만한 볼록함만 (밝기 차 ±4%)
     float shade = 0.96 + 0.08 * soft;
     vec3 fc = mix(vec3(0.99, 0.975, 0.965), mix(vec3(0.99, 0.97, 0.96), pc1, 0.22), clamp(den1, 0.0, 1.0) * (1.0 - cov * 0.6)) * shade;
     col = mix(col, fc, cov * 0.9);
+    foamCov = cov * 0.92;
     // 기포 결 (은은하게): 얇은 가장자리에서 더 보이고, 두꺼운 가운데는 거의 매끈
     vec2 fv = clamp(texture2D(uVel, uv).xy / uVelRes * 2.0 * uR, -0.12, 0.12);
     float ph0 = fract(t * 0.2), wb = abs(1.0 - 2.0 * ph0);
     vec4 fs = mix(foamSample(Pxz - fv * ph0 * 5.0, t), foamSample(Pxz - fv * fract(t * 0.2 + 0.5) * 5.0 + vec2(0.031, 0.017), t), wb);
     vec3 nb = normalize(vec3((fs.r * 2.0 - 1.0) * 1.4, 1.0, (fs.g * 2.0 - 1.0) * 1.4));
-    float edge = smoothstep(0.05, 0.3, T) * (1.0 - smoothstep(0.45, 0.85, T));
+    float edge = max(smoothstep(0.05, 0.3, T) * (1.0 - smoothstep(0.45, 0.85, T)), smoothstep(0.8, 0.97, rr) * cov);
     float rim = smoothstep(0.08, 0.4, 1.0 - nb.y) * step(0.12, fs.b);
     col = mix(col, vec3(1.0, 0.99, 0.98), rim * (0.25 + 0.35 * edge));
     col *= 1.0 - 0.05 * (1.0 - smoothstep(0.02, 0.2, fs.b)) * cov;
@@ -166,7 +175,7 @@ void main() {
   }
   float aBase = mix(0.08, 0.6, smoothstep(0.0, 0.9, depth));
   aBase = mix(aBase, 0.96, max(uMilk, clamp(den1 * 1.2, 0.0, 1.0)));
-  gl_FragColor = vec4(col, max(max(mix(aBase, 1.0, fres), glint), rimRef * 0.45));
+  gl_FragColor = vec4(col, max(max(max(mix(aBase, 1.0, fres), glint), rimRef * 0.45), foamCov));
 }`;
 
 const UPPER_FRAG = /* glsl */`
@@ -396,7 +405,7 @@ export class BasinWaterFX {
         uC: { value: sim.center }, uR: { value: sim.radius }, uTime: { value: 0 }, uSlope: { value: 26 },
         uMilk: { value: 0 }, uTintAmt: { value: 0 }, uMagicAmt: { value: 0 }, uGlow: { value: 1 }, uGlitter: { value: 0.6 },
         uTint: { value: this.tint }, uMagic: { value: this.magic }, uLightDir: { value: lightDir }, uLightCol: { value: lightCol },
-        uBomb: { value: new THREE.Vector4() }, uBombR: { value: 0.03 }, uFall: { value: new THREE.Vector4(0, -9, 0, 0.03) }, uFoamTex: { value: makeFoamTexture() }, uVel: { value: null }, uVelRes: { value: 128 },
+        uBomb: { value: new THREE.Vector4() }, uBombR: { value: 0.03 }, uFall: { value: new THREE.Vector4(0, -9, 0, 0.03) }, uFoamTex: { value: makeFoamTexture() }, uRimFoam: { value: 0 }, uWallZ: { value: sim.wallZ }, uVel: { value: null }, uVelRes: { value: 128 },
       },
     });
     water.material = this.waterMat; water.renderOrder = 2;
@@ -476,7 +485,9 @@ export class BasinWaterFX {
     if (!p) { U.uBomb.value.w = Math.max(0, U.uBomb.value.w - 0.02); return; }
     U.uBomb.value.set(p.x, p.y, p.z, Math.min(1, U.uBomb.value.w + 0.03)); U.uBombR.value = r;
   }
-  reset() { this.waterMat.uniforms.uBomb.value.w = 0;
+  /** 물이 출렁인 만큼 (젓기 · 배스밤) → 테두리에 거품이 쌓임 */
+  agitate(amount) { this.agit = Math.min(3, (this.agit ?? 0) + amount); }
+  reset() { this.agit = 0; this.rimFoam = 0; this.waterMat.uniforms.uBomb.value.w = 0;
     Object.assign(this.state, { magicAmt: 0, tintAmt: 0, milk: 0, boost: 0 }); }
 
   update(dt, renderer) {
@@ -506,6 +517,12 @@ export class BasinWaterFX {
       this.sparks.spawn(sim.center.x + Math.cos(a) * r, this.surfaceY + 0.02, sim.center.z - Math.sin(a) * r * 0.9 + 0.02,
         0, 0.03 + Math.random() * 0.04, 0, { color: [col[0] * 0.5, col[1] * 0.45, col[2] * 0.35], size: 0.003 + Math.random() * 0.003, life: 3 + Math.random() * 3, kind: 2 });
     }
+    // 테두리 거품: 출렁임이 클수록 테두리를 따라 거품이 쌓임 (쌓인 거품은 흐름을 타고 천천히 꺼짐)
+    this.agit = (this.agit ?? 0) * Math.exp(-0.7 * dt);
+    // 출렁임이 쌓일수록 테두리 거품 띠가 두꺼워지고, 가만히 두면 천천히 얇아져 사라짐 (약 20~30초)
+    this.rimFoam = Math.min(1, (this.rimFoam ?? 0) + this.agit * dt * 0.22);
+    this.rimFoam *= Math.exp(-dt * (this.agit > 0.05 ? 0.03 : 0.12));
+    this.waterMat.uniforms.uRimFoam.value = this.rimFoam;
     S.magicAmt = Math.max(0, S.magicAmt - dt * 0.12);
     S.boost = Math.max(0, S.boost - dt * 0.25);
     const breathe = 0.85 + 0.15 * Math.sin(t * 1.3);

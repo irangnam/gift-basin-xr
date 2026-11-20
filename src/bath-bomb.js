@@ -169,7 +169,8 @@ export class BathBombs {
       const f = (1 - d / reach) ** 2 * 0.06;
       b.vel.x += (vx * 0.4 - b.vel.x) * f; b.vel.z += (vz * 0.4 - b.vel.z) * f;
       b.spinV = (b.spinV ?? 0) + (vx * (b.mesh.position.z - p.z) - vz * (b.mesh.position.x - p.x)) * f * 8;
-      b.vel.y -= Math.min(0.2, Math.hypot(vx, vz)) * f * 0.3;          // 살짝 출렁
+      b.vel.y -= Math.min(0.2, Math.hypot(vx, vz)) * f * 0.3;
+      this.fx.agitate(Math.hypot(vx, vz) * f * 0.3);          // 살짝 출렁
     }
   }
   clear() { for (const b of this.list) this._remove(b); this.list.length = 0; }
@@ -255,6 +256,7 @@ export class BathBombs {
       }
       this.fx.addTint(b.avg, dt * 0.02 * rate);
       this.fx.setBomb(p, r, rate);
+      this.fx.agitate(dt * 0.25 * rate);
       this.fx.pulseMagic(b.avg, 0.2 + 0.3 * rate);
       // 배스밤 둘레에서 톡톡 터지는 잔 탄산 기포 (가끔)
       if (Math.random() < rate * 0.35) {
@@ -306,7 +308,7 @@ export class BathBombs {
         Math.cos(a) * s * 0.45, 0.6 + Math.random() * 0.9 * Math.min(1.5, speed / 2), Math.sin(a) * s * 0.45,
         { color: [0.8, 0.95, 1], size: 0.004 + Math.random() * 0.005, life: 1.2, kind: 1, grav: 9.8, floorY: Y - 0.005 });
     }
-    fx.pulseMagic(b.avg, 1);
+    fx.pulseMagic(b.avg, 1); fx.agitate(0.6);
     this.audio?.plop(Math.min(1, speed / 2.5));
     this.onHaptic?.(0.6, 60);
   }

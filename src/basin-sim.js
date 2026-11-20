@@ -56,9 +56,26 @@ const ADVECT = COMMON + /* glsl */`
 uniform sampler2D uVel, uSrc;
 uniform vec2 uVelTexel;
 uniform float uDt; uniform vec4 uDiss;
+uniform float uEdgeFoam;   // 0 이면 끔 (흐름 이류에는 0)
 void main() {
-  vec2 coord = vUv - uDt * texture2D(uVel, vUv).xy * uVelTexel;
-  gl_FragColor = texture2D(uSrc, coord) / (1.0 + uDiss * uDt) * inside(vUv);
+  vec2 v = texture2D(uVel, vUv).xy;
+  vec2 coord = vUv - uDt * v * uVelTexel;
+  vec4 c = texture2D(uSrc, coord);
+  // 가장자리(둥근 테두리 · 뒷벽)까지 거리
+  vec2 p = vUv * 2.0 - 1.0;
+  float dEdge = min(0.992 - length(p), (vUv.y - uWallV) * 2.0);
+  float edge = smoothstep(0.16, 0.02, dEdge);
+  vec4 diss = uDiss;
+  if (uEdgeFoam > 0.0) {
+    // 물살이 테두리에 닿을수록 거품이 쌓임 (테두리 쪽 거품은 더 오래 남았다가 천천히 꺼짐)
+    float sp = length(v) * uVelTexel.x;
+    float n = fract(sin(dot(floor(vUv * 90.0), vec2(12.9898, 78.233))) * 43758.5453);
+    c.a += edge * max(0.0, min(sp, 0.15) - 0.006) * uEdgeFoam * (0.6 + 0.8 * n) * uDt;
+    diss.a *= mix(1.0, 0.3, edge);
+  }
+  c /= 1.0 + diss * uDt;
+  c.a = min(c.a, 1.3);
+  gl_FragColor = c * inside(vUv);
 }`;
 
 const CURL = COMMON + /* glsl */`
@@ -165,7 +182,8 @@ export class BasinSim {
     this.params = {
       velDiss: 1.2,        // 흐름이 잦아드는 빠르기
       dyeDiss: 0.025,       // 물감이 옅어지는 빠르기 (작을수록 오래 남음)
-      foamDiss: 0.75,        // 거품이 꺼지는 빠르기
+      foamDiss: 0.75,
+      edgeFoam: 0.0,        // 물살이 테두리에 닿을 때 거품이 쌓이는 빠르기        // 거품이 꺼지는 빠르기
       curl: 5,             // 소용돌이 강조
       waveK: 0.24,          // 물결 퍼지는 빠르기 (0.5 미만)
       waveDamp: 0.986,      // 물결 감쇠
@@ -186,7 +204,7 @@ export class BasinSim {
     this.m = {
       splat: mk(SPLAT, { uSrc: { value: null }, uN: { value: 0 }, uP: { value: Array.from({ length: MAX_SPLATS }, () => new THREE.Vector4()) },
         uV: { value: Array.from({ length: MAX_SPLATS }, () => new THREE.Vector4()) }, uMax: { value: new THREE.Vector4() } }),
-      advect: mk(ADVECT, { uVel: { value: null }, uSrc: { value: null }, uVelTexel: { value: new THREE.Vector2() }, uDt: { value: 0 }, uDiss: { value: new THREE.Vector4() } }),
+      advect: mk(ADVECT, { uVel: { value: null }, uSrc: { value: null }, uVelTexel: { value: new THREE.Vector2() }, uDt: { value: 0 }, uDiss: { value: new THREE.Vector4() }, uEdgeFoam: { value: 0 } }),
       curl: mk(CURL, { uVel: { value: null }, uT: { value: new THREE.Vector2() } }),
       vort: mk(VORTICITY, { uVel: { value: null }, uCurl: { value: null }, uT: { value: new THREE.Vector2() }, uCurlK: { value: 0 }, uDt: { value: 0 } }),
       div: mk(DIVERGENCE, { uVel: { value: null }, uT: { value: new THREE.Vector2() } }),
@@ -290,9 +308,9 @@ export class BasinSim {
       M.grad.uniforms.uP.value = this.press.read.texture; M.grad.uniforms.uVel.value = V.read.texture; M.grad.uniforms.uT.value.copy(V.texel);
       this._run(M.grad, V.write); V.swap();
       const A = M.advect.uniforms;
-      A.uVel.value = V.read.texture; A.uSrc.value = V.read.texture; A.uVelTexel.value.copy(V.texel); A.uDt.value = dt; A.uDiss.value.setScalar(P.velDiss);
+      A.uVel.value = V.read.texture; A.uSrc.value = V.read.texture; A.uVelTexel.value.copy(V.texel); A.uDt.value = dt; A.uDiss.value.setScalar(P.velDiss); A.uEdgeFoam.value = 0;
       this._run(M.advect, V.write); V.swap();
-      A.uVel.value = V.read.texture; A.uSrc.value = this.dye.read.texture; A.uDiss.value.set(P.dyeDiss, P.dyeDiss, P.dyeDiss, P.foamDiss);
+      A.uVel.value = V.read.texture; A.uSrc.value = this.dye.read.texture; A.uDiss.value.set(P.dyeDiss, P.dyeDiss, P.dyeDiss, P.foamDiss); A.uEdgeFoam.value = P.edgeFoam;
       this._run(M.advect, this.dye.write); this.dye.swap();
     });
   }
