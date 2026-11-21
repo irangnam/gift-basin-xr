@@ -154,7 +154,7 @@ void main() {
       cpt += 0.003 * vec2(sin(t * 0.4 + cell.x), cos(t * 0.35 + cell.y));
       float cR = min(uR - length(cpt - uC.xz), cpt.y - uWallZ);
       float h1 = hash12(cell + 7.7), h2b = hash12(cell + 3.3);
-      float reach = 0.006 + uRimFoam * (0.02 + 0.045 * h1);
+      float reach = 0.004 + uRimFoam * (0.015 + 0.03 * h1);
       float wgt = smoothstep(reach, reach * 0.5, cR) * step(0.0, cR + 0.01);
       float rad = (0.007 + 0.013 * h2b) * (0.5 + 0.5 * sqrt(uRimFoam));
       vec2 dd = vW.xz - cpt;
@@ -163,7 +163,7 @@ void main() {
     float strip = 0.006 + 0.012 * uRimFoam;
     lump += exp(-pow(max(dRim - 0.008, 0.0) / strip, 2.0)) * smoothstep(0.0, 0.1, uRimFoam);
   }
-  float band = smoothstep(0.42, 0.62, lump);
+  float band = smoothstep(0.25, 0.7, lump) * 0.75;
   float A = clamp(foam * 1.1 + fz * 0.8 + band, 0.0, 1.0);
   float foamCov = 0.0;
   if (A > 0.02) {
@@ -175,8 +175,8 @@ void main() {
     float shade = 0.96 + 0.08 * soft;
     vec3 fc = mix(vec3(0.99, 0.975, 0.965), mix(vec3(0.99, 0.97, 0.96), pc1, 0.22), clamp(den1, 0.0, 1.0) * (1.0 - cov * 0.6)) * shade;
     fc *= mix(1.0, 0.9 + 0.12 * smoothstep(0.5, 1.4, lump), band);
-    col = mix(col, fc, cov * 0.9);
-    foamCov = cov * 0.92;
+    col = mix(col, fc, cov * mix(0.9, 0.65, clamp(band / max(A, 1e-3), 0.0, 1.0)));
+    foamCov = cov * mix(0.92, 0.6, clamp(band / max(A, 1e-3), 0.0, 1.0));
     // 기포 결 (은은하게): 얇은 가장자리에서 더 보이고, 두꺼운 가운데는 거의 매끈
     vec2 fv = clamp(texture2D(uVel, uv).xy / uVelRes * 2.0 * uR, -0.12, 0.12);
     float ph0 = fract(t * 0.2), wb = abs(1.0 - 2.0 * ph0);
@@ -537,7 +537,7 @@ export class BasinWaterFX {
     // 테두리 거품: 출렁임이 클수록 테두리를 따라 거품이 쌓임 (쌓인 거품은 흐름을 타고 천천히 꺼짐)
     this.agit = (this.agit ?? 0) * Math.exp(-0.7 * dt);
     // 출렁임이 쌓일수록 테두리 거품 띠가 두꺼워지고, 가만히 두면 천천히 얇아져 사라짐 (약 20~30초)
-    this.rimFoam = Math.min(1, (this.rimFoam ?? 0) + this.agit * dt * 0.22);
+    this.rimFoam = Math.min(0.55, (this.rimFoam ?? 0) + this.agit * dt * 0.14);
     this.rimFoam *= Math.exp(-dt * (this.agit > 0.05 ? 0.03 : 0.12));
     this.waterMat.uniforms.uRimFoam.value = this.rimFoam;
     S.magicAmt = Math.max(0, S.magicAmt - dt * 0.12);
