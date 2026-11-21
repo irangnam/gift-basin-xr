@@ -143,11 +143,27 @@ void main() {
   float fz = smoothstep(1.0, 0.1, length(fd));
   // 테두리 거품 띠: 테두리 · 뒷벽까지 거리 (m), 띠 폭은 쌓인 양에 따라, 안쪽 경계는 불규칙
   float dRim = min(uR - length(vW.xz - uC.xz), vW.z - uWallZ);
-  float ang2 = atan(vW.z - uC.z, vW.x - uC.x);
-  float wob = vnoise(vec2(ang2 * 9.0 + vW.x * 30.0, t * 0.05)) * 0.6 + vnoise(vec2(ang2 * 23.0 - vW.z * 40.0, 3.0 + t * 0.04)) * 0.4;
-  float bandW = uRimFoam * (0.008 + 0.035 * wob);
-  float clump = vnoise(vec2(ang2 * 14.0, t * 0.03)) * 0.5 + vnoise(vW.xz * 70.0 + t * 0.02) * 0.5;
-  float band = smoothstep(bandW * 1.8 + 0.008, 0.0, dRim - 0.008) * (0.35 + 0.45 * clump) * smoothstep(0.0, 0.1, uRimFoam);
+  // 둥근 거품 덩어리 (메타볼): 테두리 가까이 놓인 동글동글한 덩어리들이 부드럽게 붙고 떨어짐
+  float lump = 0.0;
+  if (uRimFoam > 0.01 && dRim < 0.09) {
+    float Sg = 1.0 / 0.024;
+    vec2 gp2 = vW.xz * Sg, ig = floor(gp2);
+    for (int j = -2; j <= 2; j++) for (int i = -2; i <= 2; i++) {
+      vec2 cell = ig + vec2(float(i), float(j));
+      vec2 cpt = (cell + 0.2 + 0.6 * h22(cell)) / Sg;
+      cpt += 0.003 * vec2(sin(t * 0.4 + cell.x), cos(t * 0.35 + cell.y));
+      float cR = min(uR - length(cpt - uC.xz), cpt.y - uWallZ);
+      float h1 = hash12(cell + 7.7), h2b = hash12(cell + 3.3);
+      float reach = 0.006 + uRimFoam * (0.02 + 0.045 * h1);
+      float wgt = smoothstep(reach, reach * 0.5, cR) * step(0.0, cR + 0.01);
+      float rad = (0.007 + 0.013 * h2b) * (0.5 + 0.5 * sqrt(uRimFoam));
+      vec2 dd = vW.xz - cpt;
+      lump += exp(-dot(dd, dd) / (rad * rad)) * wgt;
+    }
+    float strip = 0.006 + 0.012 * uRimFoam;
+    lump += exp(-pow(max(dRim - 0.008, 0.0) / strip, 2.0)) * smoothstep(0.0, 0.1, uRimFoam);
+  }
+  float band = smoothstep(0.42, 0.62, lump);
   float A = clamp(foam * 1.1 + fz * 0.8 + band, 0.0, 1.0);
   float foamCov = 0.0;
   if (A > 0.02) {
@@ -158,6 +174,7 @@ void main() {
     // 아주 완만한 볼록함만 (밝기 차 ±4%)
     float shade = 0.96 + 0.08 * soft;
     vec3 fc = mix(vec3(0.99, 0.975, 0.965), mix(vec3(0.99, 0.97, 0.96), pc1, 0.22), clamp(den1, 0.0, 1.0) * (1.0 - cov * 0.6)) * shade;
+    fc *= mix(1.0, 0.9 + 0.12 * smoothstep(0.5, 1.4, lump), band);
     col = mix(col, fc, cov * 0.9);
     foamCov = cov * 0.92;
     // 기포 결 (은은하게): 얇은 가장자리에서 더 보이고, 두꺼운 가운데는 거의 매끈
