@@ -55,10 +55,10 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
-import { applyMetaHandStyle } from './src/meta-hand.js?v=47';
-import { BasinSim } from './src/basin-sim.js?v=47';
-import { BasinWaterFX } from './src/basin-water.js?v=47';
-import { BathBombs, BasinAudio, BOMB_PRESETS, BOMB } from './src/bath-bomb.js?v=47';
+import { applyMetaHandStyle } from './src/meta-hand.js?v=48';
+import { BasinSim } from './src/basin-sim.js?v=48';
+import { BasinWaterFX } from './src/basin-water.js?v=48';
+import { BathBombs, BasinAudio, BOMB_PRESETS, BOMB } from './src/bath-bomb.js?v=49';
 
 const MODEL_V = 3;
 const qs = new URLSearchParams(location.search);
@@ -71,6 +71,8 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.95;
 renderer.xr.enabled = true;
+renderer.xr.setFoveation(1.0);                     // 시선 바깥쪽은 낮은 해상도 (퀘스트 고정 포비에이션)
+renderer.xr.setFramebufferScaleFactor(isQuest ? 0.9 : 1.0);   // 퀘스트: 화면 해상도 90%
 document.body.appendChild(renderer.domElement);
 const vrBtn = VRButton.createButton(renderer, { optionalFeatures: ['hand-tracking'] });
 document.body.appendChild(vrBtn);
@@ -123,7 +125,9 @@ const ub = new THREE.Box3().setFromObject(upMesh);
 const upCenter = new THREE.Vector3((ub.min.x + ub.max.x) / 2, ub.max.y, (ub.min.z + ub.max.z) / 2);
 const upSim = new BasinSim(renderer, { center: upCenter, radius: upMesh.userData.surface_radius ?? 0.2, wallZ: upCenter.z - 10, quality: lowerQ(quality) });
 const upFx = new BasinWaterFX(basin, upSim, { water: 'Basin2_WaterUpper', upper: null, fall: null, halo: null, spout: null, lower: null });
-const POOLS = [{ sim: upSim, fx: upFx }, { sim, fx }];      // 높은 수면 먼저
+// idle: 마지막 움직임(배스밤 · 젓기) 뒤 지난 초. 오래 쉬면 시뮬레이션을 띄엄띄엄만 돌림 (퀘스트 부담 ↓)
+const POOLS = [{ sim: upSim, fx: upFx, idle: 99, acc: 0, skip: 0, every: 12 }, { sim, fx, idle: 99, acc: 0, skip: 0, every: 6 }];      // 높은 수면 먼저
+const AWAKE = 6;                                                   // 움직임 뒤 이만큼(초)은 매 프레임 계산
 const audio = new BasinAudio();
 const magicLight = new THREE.PointLight(0xffcc88, 0.2, 1.6, 1.5);
 magicLight.position.set(center.x, center.y + 0.1, center.z + 0.25); scene.add(magicLight);
@@ -152,7 +156,7 @@ const dropBomb = (upper = false) => {
 };
 document.getElementById('drop').onclick = () => dropBomb(false);
 document.getElementById('dropUp').onclick = () => dropBomb(true);
-document.getElementById('clear').onclick = () => { bombs.clear(); for (const pl of POOLS) { pl.sim.clear(); pl.fx.reset(); } };
+document.getElementById('clear').onclick = () => { bombs.clear(); for (const pl of POOLS) { pl.sim.clear(); pl.fx.reset(); pl.idle = 99; } };
 const qSel = document.getElementById('q'); qSel.value = quality;
 qSel.onchange = () => { quality = qSel.value; sim.setQuality(quality); upSim.setQuality(lowerQ(quality)); for (const pl of POOLS) pl.fx.reset(); };
 const sndBtn = document.getElementById('snd');
@@ -170,6 +174,7 @@ class Stirrer {
   /** p: 월드 위치 (손끝). dt 초. 물에 들어가 있으면 true */
   feed(p, dt) {
     const sim = this.pool.sim, fx = this.pool.fx, Y = fx.surfaceY;
+    if (Math.abs(p.y - Y) < 0.25 && sim.isInside(p.x, p.z, -0.03)) this.pool.idle = 0;   // 손이 물 가까이 → 깨움
     const inside = sim.isInside(p.x, p.z, 0.008) && p.y < Y + 0.006 && p.y > Y - 0.22;
     this.cool = Math.max(0, this.cool - dt);
     if (this.has && dt > 0) {
@@ -230,7 +235,7 @@ const mPool = () => POOLS[mouse.pool];
 renderer.domElement.addEventListener('pointerdown', (e) => {
   audio.unlock(); pick(e);
   if (mouse.valid) {
-    mouse.down = true; controls.enabled = false; mouse.activePool = mouse.pool;
+    mouse.down = true; controls.enabled = false; mouse.activePool = mouse.pool; mPool().idle = 0;
     const st = mouse.stirs[mouse.pool]; st.reset(); st.feed(mouse.hit.clone().setY(mPool().fx.surfaceY - 0.02), 1 / 60);
     const u = mPool().sim.toUv(mouse.hit.x, mouse.hit.z, _uv); mPool().sim.addWave(u.x, u.y, 0.02, -0.012); audio.splash(0.15);
   }
@@ -238,7 +243,7 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
 renderer.domElement.addEventListener('pointermove', (e) => {
   pick(e);
   if (mouse.down && mouse.valid && mouse.pool === mouse.activePool) mouse.pending = mouse.hit.clone().setY(mPool().fx.surfaceY - 0.02);
-  else if (!mouse.down && mouse.valid) { const u = mPool().sim.toUv(mouse.hit.x, mouse.hit.z, _uv); mPool().sim.addWave(u.x, u.y, 0.012, -0.0012); }
+  else if (!mouse.down && mouse.valid) { mPool().idle = 0; const u = mPool().sim.toUv(mouse.hit.x, mouse.hit.z, _uv); mPool().sim.addWave(u.x, u.y, 0.012, -0.0012); }
 });
 addEventListener('pointerup', () => { mouse.down = false; mouse.pending = null; controls.enabled = true; for (const st of mouse.stirs) st.reset(); });
 
@@ -298,7 +303,13 @@ renderer.setAnimationLoop(() => {
     if (mouse.down && mouse.pending) { mouse.stirs[mouse.activePool].feed(mouse.pending, dt); }
   }
   bombs.update(dt);
-  for (const pl of POOLS) { pl.sim.step(dt); pl.fx.update(dt, renderer); }
+  for (const pl of POOLS) {
+    pl.idle += dt;
+    if (pl.idle < AWAKE) { pl.sim.step(dt); pl.acc = 0; pl.skip = 0; }
+    else if (++pl.skip >= pl.every) { pl.sim.step(pl.acc + dt); pl.acc = 0; pl.skip = 0; }   // 쉬는 중: 띄엄띄엄 (남은 색 · 거품은 천천히 옅어짐)
+    else pl.acc += dt;
+    pl.fx.update(dt, renderer);
+  }
   renderer.render(scene, camera);
   frames++; acc += dt;
   if (acc > 0.5) { fpsEl.textContent = `${Math.round(frames / acc)} fps · ${quality}`; frames = 0; acc = 0; }

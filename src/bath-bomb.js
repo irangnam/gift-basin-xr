@@ -198,6 +198,8 @@ export class BathBombs {
     for (let i = this.list.length - 1; i >= 0; i--) {
       const b = this.list[i], m = b.mesh; b.t += dt;
       const pool = b.pool ?? this.pools[0], sim = pool.sim, fx = pool.fx, Y = fx.surfaceY;
+      if (b.state === 'float') pool.idle = 0;                     // 녹는 동안은 그 수반 계속 계산
+      else if (b.state !== 'floor') { const pl = this.pools.find((q) => q.sim.isInside(m.position.x, m.position.z, -0.05)); if (pl) pl.idle = 0; }   // 떨어질 곳(가장 위 수반)만 깨움
       if (b.state === 'held') {
         b.holder.getWorldPosition(m.position);
         b.hist.push({ t: this.time, p: m.position.clone() }); while (b.hist.length > 6) b.hist.shift();
