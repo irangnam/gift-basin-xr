@@ -29,8 +29,16 @@ void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
 const COMMON = /* glsl */`
 precision highp float;
 varying vec2 vUv;
-uniform float uWallV;
-float inside(vec2 uv) { vec2 p = uv * 2.0 - 1.0; return step(length(p), 0.992) * step(uWallV, uv.y); }`;
+uniform float uWallV, uOctA, uHole;   // uOctA: 팔각 면까지 거리(반지름 비율, 0 이면 원), uHole: 가운데 구멍 반지름(비율)
+float edgeDist(vec2 uv) {             // 경계까지 거리 (p 단위, 안쪽 +)
+  vec2 p = uv * 2.0 - 1.0; float l = length(p);
+  float d;
+  if (uOctA > 0.0) { float a = mod(atan(p.y, p.x) + 0.392699, 0.785398) - 0.392699; d = uOctA * 0.992 - l * cos(a); }
+  else d = 0.992 - l;
+  if (uHole > 0.0) d = min(d, l - uHole);
+  return min(d, (uv.y - uWallV) * 2.0);
+}
+float inside(vec2 uv) { return step(0.0, edgeDist(uv)); }`;
 
 const SPLAT = COMMON + /* glsl */`
 uniform sampler2D uSrc;
@@ -63,7 +71,7 @@ void main() {
   vec4 c = texture2D(uSrc, coord);
   // 가장자리(둥근 테두리 · 뒷벽)까지 거리
   vec2 p = vUv * 2.0 - 1.0;
-  float dEdge = min(0.992 - length(p), (vUv.y - uWallV) * 2.0);
+  float dEdge = edgeDist(vUv);
   float edge = smoothstep(0.16, 0.02, dEdge);
   vec4 diss = uDiss;
   if (uEdgeFoam > 0.0) {
@@ -188,6 +196,9 @@ export class BasinSim {
       waveK: 0.24,          // 물결 퍼지는 빠르기 (0.5 미만)
       waveDamp: 0.986,      // 물결 감쇠
     };
+    // 팔각(octApothem: 중심~면 거리 m) · 가운데 구멍(hole: m). radius 는 바깥 꼭짓점까지
+    this.octApothem = o.octApothem ?? 0; this.holeR = o.hole ?? 0;
+    this.octA = this.octApothem / this.radius; this.hole = this.holeR / this.radius;
     this.wallV = (this.wallZ - this.center.z) / (2 * this.radius) + 0.5 + 0.004;
     this._queues = { vel: [], dye: [], wave: [] };
 
@@ -199,7 +210,7 @@ export class BasinSim {
 
     const mk = (frag, uniforms) => new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: frag, depthTest: false, depthWrite: false,
-      uniforms: { uWallV: { value: this.wallV }, ...uniforms },
+      uniforms: { uWallV: { value: this.wallV }, uOctA: { value: this.octA }, uHole: { value: this.hole }, ...uniforms },
     });
     this.m = {
       splat: mk(SPLAT, { uSrc: { value: null }, uN: { value: 0 }, uP: { value: Array.from({ length: MAX_SPLATS }, () => new THREE.Vector4()) },
@@ -244,9 +255,19 @@ export class BasinSim {
     return out.set((x - this.center.x) / (2 * this.radius) + 0.5, (z - this.center.z) / (2 * this.radius) + 0.5);
   }
   /** 월드 x,z 가 수면 안인지 (margin m 만큼 안쪽) */
-  isInside(x, z, margin = 0) {
-    const dx = x - this.center.x, dz = z - this.center.z;
-    return Math.hypot(dx, dz) < this.radius - margin && z > this.wallZ + margin;
+  isInside(x, z, margin = 0) { return this.edge(x, z).sd > margin; }
+  /** 가장 가까운 경계까지 거리 sd(m, 안쪽 +)와 바깥 방향 (nx, nz) */
+  edge(x, z) {
+    const dx = x - this.center.x, dz = z - this.center.z, l = Math.hypot(dx, dz) || 1e-6;
+    let sd, nx, nz;
+    if (this.octApothem > 0) {
+      const ang = Math.atan2(dz, dx), P8 = Math.PI / 8, P4 = Math.PI / 4;
+      const a = (((ang + P8) % P4) + P4) % P4 - P8, fa = ang - a;
+      sd = this.octApothem - l * Math.cos(a); nx = Math.cos(fa); nz = Math.sin(fa);
+    } else { sd = this.radius - l; nx = dx / l; nz = dz / l; }
+    if (this.holeR > 0 && l - this.holeR < sd) { sd = l - this.holeR; nx = -dx / l; nz = -dz / l; }
+    if (z - this.wallZ < sd) { sd = z - this.wallZ; nx = 0; nz = -1; }
+    return { sd, nx, nz };
   }
   /** m → uv 길이 */
   len(m) { return m / (2 * this.radius); }

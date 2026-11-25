@@ -177,17 +177,15 @@ export class BathBombs {
   get fizz() { return this.list.reduce((m, b) => Math.max(m, b.state === 'float' ? this._rate(b) : 0), 0); }
 
   /** 물 영역 밖으로 못 나가게: 테두리 · 뒷벽에 닿으면 바깥쪽 속도를 없애고 살짝 튕김 */
-  _keepInside(b, r) {
-    const sim = this.sim, p = b.mesh.position, lim = sim.radius - r - 0.012;
-    const dx = p.x - sim.center.x, dz = p.z - sim.center.z, d = Math.hypot(dx, dz);
-    if (d > lim) {
-      const nx = dx / d, nz = dz / d;
-      p.x = sim.center.x + nx * lim; p.z = sim.center.z + nz * lim;
-      const vn = b.vel.x * nx + b.vel.z * nz;
-      if (vn > 0) { b.vel.x -= nx * vn * 1.3; b.vel.z -= nz * vn * 1.3; }
+  _keepInside(b, r, gap = 0.012) {
+    const p = b.mesh.position, need = r + gap;
+    for (let it = 0; it < 3; it++) {                       // 모서리 · 구멍 근처는 몇 번 밀어냄
+      const e = this.sim.edge(p.x, p.z);
+      if (e.sd >= need) break;
+      p.x -= e.nx * (need - e.sd); p.z -= e.nz * (need - e.sd);
+      const vn = b.vel.x * e.nx + b.vel.z * e.nz;
+      if (vn > 0) { b.vel.x -= e.nx * vn * 1.3; b.vel.z -= e.nz * vn * 1.3; }
     }
-    const wz = sim.wallZ + r + 0.012;
-    if (p.z < wz) { p.z = wz; if (b.vel.z < 0) b.vel.z *= -0.3; }
   }
   _rate(b) { return Math.pow(Math.max(0, 1 - b.prog), 0.65) * (0.75 + 0.25 * Math.sin(b.t * 5.3) * Math.sin(b.t * 2.1)); }
   _remove(b) { b.mesh.removeFromParent(); b.mesh.geometry.dispose(); b.mesh.material.dispose(); }
@@ -227,9 +225,8 @@ export class BathBombs {
       b.vel.y += ((Y - r * 0.15 + 0.003 * Math.sin(b.t * 3.1)) - p.y) * 60 * dt; b.vel.y *= Math.exp(-6 * dt);
       b.wander.x += (Math.random() - 0.5) * dt * 0.06; b.wander.y += (Math.random() - 0.5) * dt * 0.06; b.wander.multiplyScalar(Math.exp(-1.2 * dt));
       b.vel.x += b.wander.x * dt; b.vel.z += b.wander.y * dt;
-      const dx = p.x - sim.center.x, dz = p.z - sim.center.z, d = Math.hypot(dx, dz), lim = sim.radius - r - 0.03;
-      if (d > lim) { b.vel.x -= dx / d * (d - lim) * 8 * dt; b.vel.z -= dz / d * (d - lim) * 8 * dt; }
-      if (p.z < sim.wallZ + r + 0.03) b.vel.z += (sim.wallZ + r + 0.03 - p.z) * 8 * dt;
+      const eg = sim.edge(p.x, p.z), needE = r + 0.03;
+      if (eg.sd < needE) { b.vel.x -= eg.nx * (needE - eg.sd) * 8 * dt; b.vel.z -= eg.nz * (needE - eg.sd) * 8 * dt; }
       b.vel.x *= Math.exp(-0.9 * dt); b.vel.z *= Math.exp(-0.9 * dt);
       p.addScaledVector(b.vel, dt);
       this._keepInside(b, r);
@@ -293,9 +290,7 @@ export class BathBombs {
   _splash(b) {
     const sim = this.sim, fx = this.fx, m = b.mesh, Y = fx.surfaceY;
     // 물 안으로 끌어들임
-    const lim = sim.radius - BOMB.radius - 0.03, dx = m.position.x - sim.center.x, dz = m.position.z - sim.center.z, d = Math.hypot(dx, dz);
-    if (d > lim) { m.position.x = sim.center.x + dx / d * lim; m.position.z = sim.center.z + dz / d * lim; }
-    m.position.z = Math.max(m.position.z, sim.wallZ + BOMB.radius + 0.03);
+    this._keepInside(b, BOMB.radius, 0.03);
     const speed = Math.min(4, Math.abs(b.vel.y) + 0.5);
     b.state = 'float'; b.t = 0; b.vel.set(b.vel.x * 0.25, -speed * 0.15, b.vel.z * 0.25);
     const u = sim.toUv(m.position.x, m.position.z, _u), ru = sim.len(BOMB.radius);

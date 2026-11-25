@@ -26,7 +26,7 @@ uniform vec3 uTint, uMagic, uLightDir, uLightCol;
 uniform vec4 uBomb;   // xyz 위치, w 거품 꽃 세기
 uniform vec4 uFall;   // 물줄기 닿는 곳 xyz, w 반지름
 uniform sampler2D uFoamTex, uVel;
-uniform float uVelRes, uRimFoam, uWallZ;
+uniform float uVelRes, uRimFoam, uWallZ, uOctA, uHoleR, uDepthS;
 uniform float uBombR;
 varying vec3 vW;
 ${NOISE}
@@ -75,7 +75,14 @@ float causticNet(vec2 p, float t, float w0, float w1) {
 }
 void main() {
   vec2 uv = ((vW.xz - uC.xz) / uR + 1.0) * 0.5;
-  float rr = length(uv * 2.0 - 1.0);
+  // 경계까지 거리 (m): 원 · 팔각 · 가운데 구멍 · 벽
+  vec2 qq = vW.xz - uC.xz; float ql = length(qq);
+  float sdE;
+  if (uOctA > 0.0) { float oa = mod(atan(qq.y, qq.x) + 0.392699, 0.785398) - 0.392699; sdE = uOctA - ql * cos(oa); }
+  else sdE = uR - ql;
+  if (uHoleR > 0.0) sdE = min(sdE, ql - uHoleR);
+  sdE = min(sdE, vW.z - uWallZ);
+  float rr = 1.0 - clamp(sdE / uDepthS, 0.0, 1.0);
   // 물결 노멀
   float hL = texture2D(uWave, uv - vec2(uWaveT.x, 0.0)).r, hR = texture2D(uWave, uv + vec2(uWaveT.x, 0.0)).r;
   float hB = texture2D(uWave, uv - vec2(0.0, uWaveT.y)).r, hT = texture2D(uWave, uv + vec2(0.0, uWaveT.y)).r;
@@ -142,7 +149,7 @@ void main() {
   vec2 fd = (Pxz - uFall.xz) / vec2(uFall.w * 1.6, uFall.w);
   float fz = smoothstep(1.0, 0.1, length(fd));
   // 테두리 거품 띠: 테두리 · 뒷벽까지 거리 (m), 띠 폭은 쌓인 양에 따라, 안쪽 경계는 불규칙
-  float dRim = min(uR - length(vW.xz - uC.xz), vW.z - uWallZ);
+  float dRim = sdE;
   // 둥근 거품 덩어리 (메타볼): 테두리 가까이 놓인 동글동글한 덩어리들이 부드럽게 붙고 떨어짐
   float lump = 0.0;
   if (uRimFoam > 0.01 && dRim < 0.09) {
@@ -423,7 +430,8 @@ export class BasinWaterFX {
         uC: { value: sim.center }, uR: { value: sim.radius }, uTime: { value: 0 }, uSlope: { value: 26 },
         uMilk: { value: 0 }, uTintAmt: { value: 0 }, uMagicAmt: { value: 0 }, uGlow: { value: 1 }, uGlitter: { value: 0.6 },
         uTint: { value: this.tint }, uMagic: { value: this.magic }, uLightDir: { value: lightDir }, uLightCol: { value: lightCol },
-        uBomb: { value: new THREE.Vector4() }, uBombR: { value: 0.03 }, uFall: { value: new THREE.Vector4(0, -9, 0, 0.03) }, uFoamTex: { value: makeFoamTexture() }, uRimFoam: { value: 0 }, uWallZ: { value: sim.wallZ }, uVel: { value: null }, uVelRes: { value: 128 },
+        uBomb: { value: new THREE.Vector4() }, uBombR: { value: 0.03 }, uFall: { value: new THREE.Vector4(0, -9, 0, 0.03) }, uFoamTex: { value: makeFoamTexture() }, uRimFoam: { value: 0 }, uWallZ: { value: sim.wallZ }, uOctA: { value: sim.octApothem || 0 }, uHoleR: { value: sim.holeR || 0 },
+        uDepthS: { value: sim.octApothem ? (sim.octApothem - (sim.holeR || 0)) * 0.55 : sim.radius }, uVel: { value: null }, uVelRes: { value: 128 },
       },
     });
     water.material = this.waterMat; water.renderOrder = 2;
