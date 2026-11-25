@@ -406,14 +406,15 @@ export class BasinWaterFX {
    * @param {THREE.Object3D} basin  Basin.glb 의 루트 (월드에 놓인 뒤)
    * @param {import('./basin-sim.js').BasinSim} sim
    */
-  constructor(basin, sim) {
+  constructor(basin, sim, names = {}) {
     this.sim = sim; this.time = 0;
-    const get = (n) => basin.getObjectByName(n);
+    const NM = { water: 'Basin_Water', upper: 'Basin_WaterUpper', fall: 'Basin_WaterFall', halo: 'Basin_Halo', spout: 'Basin_SpoutTip', lower: null, ...names };
+    const get = (n) => (n ? basin.getObjectByName(n) : null);
     this.magic = new THREE.Color(1, 0.8, 0.5); this.tint = new THREE.Color(0.9, 0.9, 0.9);
     this.state = { magicAmt: 0, tintAmt: 0, milk: 0, boost: 0, glitter: 0.6 };
     const lightDir = new THREE.Vector3(0.35, 0.9, 0.45).normalize(), lightCol = new THREE.Color(1.0, 0.86, 0.66);
 
-    const water = get('Basin_Water');
+    const water = get(NM.water);
     this.surfaceY = sim.center.y;
     this.waterMat = new THREE.ShaderMaterial({
       vertexShader: WATER_VERT, fragmentShader: WATER_FRAG, transparent: true, depthWrite: true,
@@ -427,10 +428,10 @@ export class BasinWaterFX {
     });
     water.material = this.waterMat; water.renderOrder = 2;
 
-    const upper = get('Basin_WaterUpper');
+    const upper = get(NM.upper);
     if (upper) {
       const impact = new THREE.Vector3();
-      get('Basin_SpoutTip')?.getWorldPosition(impact);
+      get(NM.spout)?.getWorldPosition(impact);
       impact.z += 0.02;
       this.upperMat = new THREE.ShaderMaterial({
         vertexShader: WATER_VERT, fragmentShader: UPPER_FRAG, transparent: true,
@@ -440,7 +441,16 @@ export class BasinWaterFX {
       upper.material = this.upperMat; upper.renderOrder = 2;
     }
 
-    const fall = get('Basin_WaterFall');
+    const lower = get(NM.lower);
+    if (lower) {
+      this.lowerMat = new THREE.ShaderMaterial({
+        vertexShader: WATER_VERT, fragmentShader: UPPER_FRAG, transparent: true,
+        uniforms: { uTime: { value: 0 }, uMagicAmt: { value: 0 }, uTintAmt: { value: 0 }, uImpact: { value: new THREE.Vector3(0, -50, 0) },
+          uMagic: { value: this.magic }, uTint: { value: this.tint }, uLightDir: { value: lightDir }, uLightCol: { value: lightCol } },
+      });
+      lower.material = this.lowerMat; lower.renderOrder = 2;
+    }
+    const fall = get(NM.fall);
     if (fall) {
       this.fallMat = new THREE.ShaderMaterial({
         vertexShader: WATER_VERT, fragmentShader: FALL_FRAG, transparent: true, depthWrite: false, side: THREE.DoubleSide,
@@ -457,13 +467,13 @@ export class BasinWaterFX {
       if (upper) {
         const ub = new THREE.Box3().setFromObject(upper);
         this.fallMat.uniforms.uCutY.value = ub.max.y - 0.004;
-        const tip = new THREE.Vector3(); get('Basin_SpoutTip')?.getWorldPosition(tip);
+        const tip = new THREE.Vector3(); get(NM.spout)?.getWorldPosition(tip);
         this.fallMat.uniforms.uCutZ.value = tip.z + 0.045;   // 토출구 물줄기보다 앞(위 접시 가장자리 커튼)은 자름
       }
       this.fallPoint = null;
     }
 
-    const halo = get('Basin_Halo');
+    const halo = get(NM.halo);
     if (halo) {
       halo.geometry.computeBoundingBox();
       const bb = halo.geometry.boundingBox.clone().applyMatrix4(halo.matrixWorld);
@@ -529,9 +539,9 @@ export class BasinWaterFX {
     }
     // 은은한 빛 알갱이 (늘)
     if (Math.random() < dt * 0.6) {
-      const a = Math.PI + Math.random() * Math.PI, r = Math.random() * sim.radius * 0.85;
+      const a = Math.random() * Math.PI * 2, r = Math.random() * sim.radius * 0.85;
       const col = S.magicAmt > 0.1 ? [this.magic.r, this.magic.g, this.magic.b] : [1, 0.82, 0.5];
-      this.sparks.spawn(sim.center.x + Math.cos(a) * r, this.surfaceY + 0.02, sim.center.z - Math.sin(a) * r * 0.9 + 0.02,
+      this.sparks.spawn(sim.center.x + Math.cos(a) * r, this.surfaceY + 0.02, sim.center.z - Math.sin(a) * r * 0.9,
         0, 0.03 + Math.random() * 0.04, 0, { color: [col[0] * 0.5, col[1] * 0.45, col[2] * 0.35], size: 0.003 + Math.random() * 0.003, life: 3 + Math.random() * 3, kind: 2 });
     }
     // 테두리 거품: 출렁임이 클수록 테두리를 따라 거품이 쌓임 (쌓인 거품은 흐름을 타고 천천히 꺼짐)
@@ -548,7 +558,7 @@ export class BasinWaterFX {
     W.uWave.value = sim.waveTexture; W.uDye.value = sim.dyeTexture; W.uVel.value = sim.vel.read.texture; W.uVelRes.value = sim.vel.size; W.uWaveT.value.copy(sim.waveTexel);
     W.uTime.value = t; W.uMilk.value = S.milk; W.uTintAmt.value = S.tintAmt; W.uMagicAmt.value = S.magicAmt; W.uGlow.value = breathe;
     W.uGlitter.value = S.glitter;
-    for (const m of [this.upperMat, this.fallMat]) if (m) { m.uniforms.uTime.value = t; m.uniforms.uMagicAmt.value = S.magicAmt; m.uniforms.uTintAmt.value = S.tintAmt; }
+    for (const m of [this.upperMat, this.fallMat, this.lowerMat]) if (m) { m.uniforms.uTime.value = t; m.uniforms.uMagicAmt.value = S.magicAmt; m.uniforms.uTintAmt.value = S.tintAmt; }
     if (this.haloMat) { const H = this.haloMat.uniforms; H.uTime.value = t; H.uBoost.value = S.boost * breathe; H.uMagicAmt.value = Math.min(1, S.magicAmt * 1.2); }
 
     // 입자 크기: 화면(눈) 해상도 기준
