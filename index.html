@@ -59,7 +59,7 @@ import { BasinSim } from './src/basin-sim.js?v=42';
 import { BasinWaterFX } from './src/basin-water.js?v=45';
 import { BathBombs, BasinAudio, BOMB_PRESETS, BOMB } from './src/bath-bomb.js?v=42';
 
-const MODEL_V = 2;
+const MODEL_V = 3;
 const qs = new URLSearchParams(location.search);
 const isQuest = /OculusBrowser|Quest/i.test(navigator.userAgent);
 let quality = qs.get('q') || (isQuest ? 'mid' : 'high');
@@ -132,7 +132,7 @@ BOMB_PRESETS.forEach((p, i) => {
 const dropBomb = () => {
   audio.unlock();
   // 위 수반 테두리 밖, 1층 물 위 (앞쪽 반원 중 아무 곳)
-  const a = Math.PI * (0.2 + 0.6 * Math.random()), rr = 0.342;
+  const a = Math.PI * (0.2 + 0.6 * Math.random()), rr = 0.27;
   const drop = new THREE.Vector3(center.x + Math.cos(a) * rr, center.y + 0.32, center.z + Math.sin(a) * rr);
   bombs.spawn(BOMB_PRESETS[presetIdx], drop);
 };
