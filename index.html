@@ -37,7 +37,8 @@
   <p id="help">물을 끌어서 저어 보세요. 배스밤을 고르고 넣으면 퐁당!</p>
   <div class="chips" id="chips"></div>
   <div class="row" style="margin-bottom:8px">
-    <button class="b" id="drop">배스밤 넣기</button>
+    <button class="b" id="drop">1층에 넣기</button>
+    <button class="b" id="dropUp">위 수반에 넣기</button>
     <button class="s" id="clear">물 비우기</button>
   </div>
   <div class="row">
@@ -54,10 +55,10 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
-import { applyMetaHandStyle } from './src/meta-hand.js?v=42';
-import { BasinSim } from './src/basin-sim.js?v=42';
-import { BasinWaterFX } from './src/basin-water.js?v=45';
-import { BathBombs, BasinAudio, BOMB_PRESETS, BOMB } from './src/bath-bomb.js?v=42';
+import { applyMetaHandStyle } from './src/meta-hand.js?v=46';
+import { BasinSim } from './src/basin-sim.js?v=46';
+import { BasinWaterFX } from './src/basin-water.js?v=46';
+import { BathBombs, BasinAudio, BOMB_PRESETS, BOMB } from './src/bath-bomb.js?v=46';
 
 const MODEL_V = 3;
 const qs = new URLSearchParams(location.search);
@@ -114,11 +115,19 @@ const APO = waterMesh.userData.surface_radius ?? 0.352;           // 중심 ~ �
 const R = APO / Math.cos(Math.PI / 8);                             // 중심 ~ 꼭짓점
 const center = new THREE.Vector3((wb.min.x + wb.max.x) / 2, wb.max.y, (wb.min.z + wb.max.z) / 2);
 const sim = new BasinSim(renderer, { center, radius: R, wallZ: center.z - 10, octApothem: APO, hole: 0.078, quality });
-const fx = new BasinWaterFX(basin, sim, { water: 'Basin2_WaterLower', upper: 'Basin2_WaterUpper', fall: null, halo: null, spout: null, lower: null });
+const fx = new BasinWaterFX(basin, sim, { water: 'Basin2_WaterLower', upper: null, fall: null, halo: null, spout: null, lower: null });
+// 위 단(둥근 수반)도 같은 물 · 배스밤 시뮬레이션 (작으니 한 단계 낮은 해상도)
+const lowerQ = (q) => ({ high: 'mid', mid: 'low', low: 'low' }[q] || 'low');
+const upMesh = basin.getObjectByName('Basin2_WaterUpper');
+const ub = new THREE.Box3().setFromObject(upMesh);
+const upCenter = new THREE.Vector3((ub.min.x + ub.max.x) / 2, ub.max.y, (ub.min.z + ub.max.z) / 2);
+const upSim = new BasinSim(renderer, { center: upCenter, radius: upMesh.userData.surface_radius ?? 0.2, wallZ: upCenter.z - 10, quality: lowerQ(quality) });
+const upFx = new BasinWaterFX(basin, upSim, { water: 'Basin2_WaterUpper', upper: null, fall: null, halo: null, spout: null, lower: null });
+const POOLS = [{ sim: upSim, fx: upFx }, { sim, fx }];      // 높은 수면 먼저
 const audio = new BasinAudio();
 const magicLight = new THREE.PointLight(0xffcc88, 0.2, 1.6, 1.5);
 magicLight.position.set(center.x, center.y + 0.1, center.z + 0.25); scene.add(magicLight);
-const bombs = new BathBombs({ scene, sim, fx, audio, floorY: 0, light: magicLight, onHaptic: (a, ms) => haptic(null, a, ms) });
+const bombs = new BathBombs({ scene, pools: POOLS, audio, floorY: 0, light: magicLight, onHaptic: (a, ms) => haptic(null, a, ms) });
 
 // ---------------------------------------------------------------- HUD
 let presetIdx = 0;
@@ -129,32 +138,38 @@ BOMB_PRESETS.forEach((p, i) => {
   el.onclick = () => { presetIdx = i; [...chips.children].forEach((c, k) => c.classList.toggle('on', k === i)); };
   chips.appendChild(el);
 });
-const dropBomb = () => {
+const dropBomb = (upper = false) => {
   audio.unlock();
-  // 위 수반 테두리 밖, 1층 물 위 (앞쪽 반원 중 아무 곳)
-  const a = Math.PI * (0.2 + 0.6 * Math.random()), rr = 0.27;
-  const drop = new THREE.Vector3(center.x + Math.cos(a) * rr, center.y + 0.32, center.z + Math.sin(a) * rr);
+  let drop;
+  if (upper) {                                                   // 위 수반 가운데 근처
+    const a = Math.random() * Math.PI * 2, rr = Math.random() * 0.07;
+    drop = new THREE.Vector3(upCenter.x + Math.cos(a) * rr, upCenter.y + 0.12, upCenter.z + Math.sin(a) * rr);
+  } else {                                                       // 위 수반 테두리 밖, 1층 물 위 (앞쪽)
+    const a = Math.PI * (0.2 + 0.6 * Math.random()), rr = 0.27;
+    drop = new THREE.Vector3(center.x + Math.cos(a) * rr, center.y + 0.32, center.z + Math.sin(a) * rr);
+  }
   bombs.spawn(BOMB_PRESETS[presetIdx], drop);
 };
-document.getElementById('drop').onclick = dropBomb;
-document.getElementById('clear').onclick = () => { bombs.clear(); sim.clear(); fx.reset(); };
+document.getElementById('drop').onclick = () => dropBomb(false);
+document.getElementById('dropUp').onclick = () => dropBomb(true);
+document.getElementById('clear').onclick = () => { bombs.clear(); for (const pl of POOLS) { pl.sim.clear(); pl.fx.reset(); } };
 const qSel = document.getElementById('q'); qSel.value = quality;
-qSel.onchange = () => { quality = qSel.value; sim.setQuality(quality); fx.reset(); };
+qSel.onchange = () => { quality = qSel.value; sim.setQuality(quality); upSim.setQuality(lowerQ(quality)); for (const pl of POOLS) pl.fx.reset(); };
 const sndBtn = document.getElementById('snd');
 sndBtn.onclick = () => { audio.unlock(); audio.enabled = !audio.enabled; sndBtn.textContent = audio.enabled ? '🔊 소리' : '🔇 소리'; };
 addEventListener('keydown', (e) => {
   const n = parseInt(e.key, 10);
-  if (n >= 1 && n <= BOMB_PRESETS.length) { chips.children[n - 1].click(); dropBomb(); }
-  if (e.key === ' ') dropBomb();
+  if (n >= 1 && n <= BOMB_PRESETS.length) { chips.children[n - 1].click(); dropBomb(e.shiftKey); }
+  if (e.key === ' ') dropBomb(e.shiftKey);
 });
 
 // ---------------------------------------------------------------- 물 젓기 (마우스 · 손가락 · 컨트롤러 공통)
 const _uv = new THREE.Vector2();
 class Stirrer {
-  constructor(src = null) { this.src = src; this.prev = new THREE.Vector3(); this.inWater = false; this.has = false; this.cool = 0; }
+  constructor(src = null, pool = POOLS[1]) { this.src = src; this.pool = pool; this.prev = new THREE.Vector3(); this.inWater = false; this.has = false; this.cool = 0; }
   /** p: 월드 위치 (손끝). dt 초. 물에 들어가 있으면 true */
   feed(p, dt) {
-    const Y = fx.surfaceY;
+    const sim = this.pool.sim, fx = this.pool.fx, Y = fx.surfaceY;
     const inside = sim.isInside(p.x, p.z, 0.008) && p.y < Y + 0.006 && p.y > Y - 0.22;
     this.cool = Math.max(0, this.cool - dt);
     if (this.has && dt > 0) {
@@ -191,26 +206,41 @@ class Stirrer {
   }
   reset() { this.has = false; this.inWater = false; }
 }
+/** 손 · 컨트롤러 하나가 두 수반을 다 저을 수 있게 */
+class MultiStir {
+  constructor(src = null) { this.list = POOLS.map((pl) => new Stirrer(src, pl)); }
+  set src(v) { for (const st of this.list) st.src = v; }
+  feed(p, dt) { let any = false; for (const st of this.list) any = st.feed(p, dt) || any; return any; }
+  reset() { for (const st of this.list) st.reset(); }
+}
 
 // 마우스: 물 위를 끌면 젓기 (물 밖에서 끌면 시점 회전). 그냥 움직여도 아주 살짝 잔물결
-const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -center.y);
-const mouse = { stir: new Stirrer(), down: false, hit: new THREE.Vector3(), valid: false, last: performance.now() };
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const mouse = { stirs: POOLS.map((pl) => new Stirrer(null, pl)), pool: 0, down: false, hit: new THREE.Vector3(), valid: false };
 function pick(e) {
   ndc.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
   ray.setFromCamera(ndc, camera);
-  mouse.valid = !!ray.ray.intersectPlane(plane, mouse.hit) && sim.isInside(mouse.hit.x, mouse.hit.z, 0.01);
+  mouse.valid = false;
+  for (let i = 0; i < POOLS.length; i++) {                     // 위 단 먼저
+    plane.constant = -POOLS[i].fx.surfaceY;
+    if (ray.ray.intersectPlane(plane, mouse.hit) && POOLS[i].sim.isInside(mouse.hit.x, mouse.hit.z, 0.01)) { mouse.valid = true; mouse.pool = i; break; }
+  }
 }
+const mPool = () => POOLS[mouse.pool];
 renderer.domElement.addEventListener('pointerdown', (e) => {
   audio.unlock(); pick(e);
-  if (mouse.valid) { mouse.down = true; controls.enabled = false; mouse.stir.reset(); mouse.stir.feed(mouse.hit.clone().setY(center.y - 0.02), 1 / 60);
-    const u = sim.toUv(mouse.hit.x, mouse.hit.z, _uv); sim.addWave(u.x, u.y, 0.02, -0.012); audio.splash(0.15); }
+  if (mouse.valid) {
+    mouse.down = true; controls.enabled = false; mouse.activePool = mouse.pool;
+    const st = mouse.stirs[mouse.pool]; st.reset(); st.feed(mouse.hit.clone().setY(mPool().fx.surfaceY - 0.02), 1 / 60);
+    const u = mPool().sim.toUv(mouse.hit.x, mouse.hit.z, _uv); mPool().sim.addWave(u.x, u.y, 0.02, -0.012); audio.splash(0.15);
+  }
 });
 renderer.domElement.addEventListener('pointermove', (e) => {
   pick(e);
-  if (mouse.down && mouse.valid) mouse.pending = mouse.hit.clone().setY(center.y - 0.02);
-  else if (!mouse.down && mouse.valid) { const u = sim.toUv(mouse.hit.x, mouse.hit.z, _uv); sim.addWave(u.x, u.y, 0.012, -0.0012); }
+  if (mouse.down && mouse.valid && mouse.pool === mouse.activePool) mouse.pending = mouse.hit.clone().setY(mPool().fx.surfaceY - 0.02);
+  else if (!mouse.down && mouse.valid) { const u = mPool().sim.toUv(mouse.hit.x, mouse.hit.z, _uv); mPool().sim.addWave(u.x, u.y, 0.012, -0.0012); }
 });
-addEventListener('pointerup', () => { mouse.down = false; controls.enabled = true; mouse.stir.reset(); });
+addEventListener('pointerup', () => { mouse.down = false; mouse.pending = null; controls.enabled = true; for (const st of mouse.stirs) st.reset(); });
 
 // ---------------------------------------------------------------- VR: 컨트롤러 · 손
 const ctrlFactory = new XRControllerModelFactory(), handFactory = new XRHandModelFactory(null, applyMetaHandStyle);   // 퀘스트 스타일 외곽선 손
@@ -222,7 +252,7 @@ for (let i = 0; i < 2; i++) {
   scene.add(c, grip, hand);
   const tip = new THREE.Object3D(); tip.position.set(0, -0.01, -0.07); grip.add(tip);     // 컨트롤러 앞 끝
   const pinch = new THREE.Object3D(); scene.add(pinch);                                    // 손: 엄지·검지 사이
-  const st = { c, grip, hand, tip, pinch, src: null, isHand: false, stir: new Stirrer(), held: null };
+  const st = { c, grip, hand, tip, pinch, src: null, isHand: false, stir: new MultiStir(), held: null };
   c.addEventListener('connected', (e) => { st.src = e.data; st.isHand = !!e.data.hand; st.stir.src = e.data; });
   c.addEventListener('disconnected', () => { st.src = null; if (st.held) { bombs.release(st.held); st.held = null; } });
   c.addEventListener('selectstart', () => {                        // 트리거 · 핀치: 손에 배스밤이 나타남
@@ -265,18 +295,17 @@ renderer.setAnimationLoop(() => {
   if (renderer.xr.isPresenting) updateXRInput(dt);
   else {
     controls.update();
-    if (mouse.down && mouse.pending) { mouse.stir.feed(mouse.pending, dt); }
+    if (mouse.down && mouse.pending) { mouse.stirs[mouse.activePool].feed(mouse.pending, dt); }
   }
   bombs.update(dt);
-  sim.step(dt);
-  fx.update(dt, renderer);
+  for (const pl of POOLS) { pl.sim.step(dt); pl.fx.update(dt, renderer); }
   renderer.render(scene, camera);
   frames++; acc += dt;
   if (acc > 0.5) { fpsEl.textContent = `${Math.round(frames / acc)} fps · ${quality}`; frames = 0; acc = 0; }
 });
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
 window.__applyMetaHandStyle = applyMetaHandStyle;
-window.__basin = { sim, fx, bombs, dropBomb, camera, controls, BOMB_PRESETS, setPreset: (i) => (presetIdx = i) };
+window.__basin = { sim, fx, upSim, upFx, POOLS, bombs, dropBomb, camera, controls, BOMB_PRESETS, setPreset: (i) => (presetIdx = i) };
 </script>
 </body>
 </html>

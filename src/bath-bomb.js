@@ -132,6 +132,8 @@ export class BathBombs {
   constructor(o) {
     Object.assign(this, o);
     this.floorY ??= 0;
+    // 여러 수반 (위 단 · 1층): 높은 수면부터 검사
+    this.pools = (o.pools ?? [{ sim: o.sim, fx: o.fx }]).slice().sort((a, b) => b.fx.surfaceY - a.fx.surfaceY);
     this.list = []; this.time = 0; this._seed = 1;
   }
 
@@ -170,7 +172,7 @@ export class BathBombs {
       b.vel.x += (vx * 0.4 - b.vel.x) * f; b.vel.z += (vz * 0.4 - b.vel.z) * f;
       b.spinV = (b.spinV ?? 0) + (vx * (b.mesh.position.z - p.z) - vz * (b.mesh.position.x - p.x)) * f * 8;
       b.vel.y -= Math.min(0.2, Math.hypot(vx, vz)) * f * 0.3;
-      this.fx.agitate(Math.hypot(vx, vz) * f * 0.3);          // 살짝 출렁
+      (b.pool ?? this.pools[0]).fx.agitate(Math.hypot(vx, vz) * f * 0.3);          // 살짝 출렁
     }
   }
   clear() { for (const b of this.list) this._remove(b); this.list.length = 0; }
@@ -180,7 +182,7 @@ export class BathBombs {
   _keepInside(b, r, gap = 0.012) {
     const p = b.mesh.position, need = r + gap;
     for (let it = 0; it < 3; it++) {                       // 모서리 · 구멍 근처는 몇 번 밀어냄
-      const e = this.sim.edge(p.x, p.z);
+      const e = (b.pool ?? this.pools[0]).sim.edge(p.x, p.z);
       if (e.sd >= need) break;
       p.x -= e.nx * (need - e.sd); p.z -= e.nz * (need - e.sd);
       const vn = b.vel.x * e.nx + b.vel.z * e.nz;
@@ -192,9 +194,10 @@ export class BathBombs {
 
   update(dt) {
     this.time += dt;
-    const sim = this.sim, Y = this.fx.surfaceY, R = BOMB.radius;
+    const R = BOMB.radius;
     for (let i = this.list.length - 1; i >= 0; i--) {
       const b = this.list[i], m = b.mesh; b.t += dt;
+      const pool = b.pool ?? this.pools[0], sim = pool.sim, fx = pool.fx, Y = fx.surfaceY;
       if (b.state === 'held') {
         b.holder.getWorldPosition(m.position);
         b.hist.push({ t: this.time, p: m.position.clone() }); while (b.hist.length > 6) b.hist.shift();
@@ -204,8 +207,15 @@ export class BathBombs {
       if (b.state === 'fall') {
         b.vel.y -= 9.8 * dt; m.position.addScaledVector(b.vel, dt);
         m.rotation.x += dt * 3; m.rotation.z += dt * 2;
-        const nearBasin = sim.isInside(m.position.x, m.position.z, -0.05);
-        if (nearBasin && m.position.y - R * 0.4 <= Y && b.vel.y < 0) this._splash(b);
+        let nearBasin = false, hit = null;
+        for (const pl of this.pools) {
+          if (!pl.sim.isInside(m.position.x, m.position.z, -0.05)) continue;
+          nearBasin = true;
+          const py = pl.fx.surfaceY;
+          if (m.position.y - R * 0.4 <= py && m.position.y > py - 0.12 && b.vel.y < 0) { hit = pl; break; }
+          if (m.position.y > py - 0.12) break;                   // 이 수면 위 → 아래 수반까지 내려가지 않음
+        }
+        if (hit) { b.pool = hit; this._splash(b); }
         else if (!nearBasin && m.position.y - R <= this.floorY) { m.position.y = this.floorY + R; b.state = 'floor'; b.t = 0; this.audio?.splash(0.2); }
         continue;
       }
@@ -251,14 +261,14 @@ export class BathBombs {
         const a = Math.random() * Math.PI * 2, rr = ru * (1.1 + Math.random() * 0.6);
         sim.addWave(u.x + Math.cos(a) * rr, u.y + Math.sin(a) * rr, 0.006, (Math.random() - 0.3) * 0.0025 * rate);
       }
-      this.fx.addTint(b.avg, dt * 0.02 * rate);
-      this.fx.setBomb(p, r, rate);
-      this.fx.agitate(dt * 0.25 * rate);
-      this.fx.pulseMagic(b.avg, 0.2 + 0.3 * rate);
+      fx.addTint(b.avg, dt * 0.02 * rate);
+      fx.setBomb(p, r, rate);
+      fx.agitate(dt * 0.25 * rate);
+      fx.pulseMagic(b.avg, 0.2 + 0.3 * rate);
       // 배스밤 둘레에서 톡톡 터지는 잔 탄산 기포 (가끔)
       if (Math.random() < rate * 0.35) {
         const a = Math.random() * Math.PI * 2, rr = r * (1.0 + Math.random() * 0.5);
-        this.fx.bubbles.spawn(p.x + Math.cos(a) * rr, Y + 0.0015, p.z + Math.sin(a) * rr, Math.cos(a) * 0.01, 0, Math.sin(a) * 0.01,
+        fx.bubbles.spawn(p.x + Math.cos(a) * rr, Y + 0.0015, p.z + Math.sin(a) * rr, Math.cos(a) * 0.01, 0, Math.sin(a) * 0.01,
           { size: 0.0015 + Math.random() * 0.0015, life: 0.2 + Math.random() * 0.3, kind: 0, drag: 3 });
       }
       // 부스러져 떨어지는 가루 조각 (배스밤 색, 물에 닿으면 가라앉아 사라짐)
@@ -266,12 +276,12 @@ export class BathBombs {
         const a = Math.random() * Math.PI * 2, c = b.mesh.material.userData.u.uSpeck.value;
         const sh = new THREE.Color(b.preset.shell);
         const cc = Math.random() < 0.3 ? c : sh;
-        this.fx.bubbles.spawn(p.x + Math.cos(a) * r * 0.9, p.y + r * 0.2, p.z + Math.sin(a) * r * 0.9, Math.cos(a) * 0.02, 0.02, Math.sin(a) * 0.02,
+        fx.bubbles.spawn(p.x + Math.cos(a) * r * 0.9, p.y + r * 0.2, p.z + Math.sin(a) * r * 0.9, Math.cos(a) * 0.02, 0.02, Math.sin(a) * 0.02,
           { color: [cc.r, cc.g, cc.b], size: 0.0025 + Math.random() * 0.002, life: 1.2, kind: 1, grav: 0.4, drag: 2, floorY: Y - 0.004 });
       }
       if (Math.random() < rate * dt * 0.7) {
         const c = b.dye[Math.floor(Math.random() * b.dye.length)];
-        this.fx.sparks.spawn(p.x + (Math.random() - 0.5) * r, Y + 0.01, p.z + (Math.random() - 0.5) * r,
+        fx.sparks.spawn(p.x + (Math.random() - 0.5) * r, Y + 0.01, p.z + (Math.random() - 0.5) * r,
           (Math.random() - 0.5) * 0.015, 0.03 + Math.random() * 0.04, (Math.random() - 0.5) * 0.015,
           { color: [0.55 + c.r * 0.15, 0.48 + c.g * 0.15, 0.36 + c.b * 0.15], size: 0.003 + Math.random() * 0.003, life: 2 + Math.random() * 2.5, kind: 2 });
       }
@@ -279,16 +289,16 @@ export class BathBombs {
       if (b.prog >= 1) { this._remove(b); this.list.splice(i, 1); }
     }
     if (this.light) {
-      const a = this.fx.state.magicAmt;
+      const a = Math.max(...this.pools.map((pl) => pl.fx.state.magicAmt));
       this.light.intensity = 0.02 + 0.08 * a * (0.85 + 0.15 * Math.sin(this.time * 7));
       if (a < 0.05) this.light.color.lerp(_c.set(1, 0.8, 0.5), 0.02);
     }
-    if (!this.list.some((b) => b.state === 'float')) this.fx.setBomb(null);
+    for (const pl of this.pools) if (!this.list.some((b) => b.state === 'float' && b.pool === pl)) pl.fx.setBomb(null);
     this.audio?.update(this.fizz, this.time);
   }
 
   _splash(b) {
-    const sim = this.sim, fx = this.fx, m = b.mesh, Y = fx.surfaceY;
+    const pool = b.pool ?? this.pools[0], sim = pool.sim, fx = pool.fx, m = b.mesh, Y = fx.surfaceY;
     // 물 안으로 끌어들임
     this._keepInside(b, BOMB.radius, 0.03);
     const speed = Math.min(4, Math.abs(b.vel.y) + 0.5);
