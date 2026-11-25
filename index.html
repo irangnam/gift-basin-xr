@@ -55,10 +55,10 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { VRButton } from 'three/addons/webxr/VRButton.js';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
-import { applyMetaHandStyle } from './src/meta-hand.js?v=46';
-import { BasinSim } from './src/basin-sim.js?v=46';
-import { BasinWaterFX } from './src/basin-water.js?v=46';
-import { BathBombs, BasinAudio, BOMB_PRESETS, BOMB } from './src/bath-bomb.js?v=46';
+import { applyMetaHandStyle } from './src/meta-hand.js?v=47';
+import { BasinSim } from './src/basin-sim.js?v=47';
+import { BasinWaterFX } from './src/basin-water.js?v=47';
+import { BathBombs, BasinAudio, BOMB_PRESETS, BOMB } from './src/bath-bomb.js?v=47';
 
 const MODEL_V = 3;
 const qs = new URLSearchParams(location.search);
@@ -116,8 +116,8 @@ const R = APO / Math.cos(Math.PI / 8);                             // 중심 ~ �
 const center = new THREE.Vector3((wb.min.x + wb.max.x) / 2, wb.max.y, (wb.min.z + wb.max.z) / 2);
 const sim = new BasinSim(renderer, { center, radius: R, wallZ: center.z - 10, octApothem: APO, hole: 0.078, quality });
 const fx = new BasinWaterFX(basin, sim, { water: 'Basin2_WaterLower', upper: null, fall: null, halo: null, spout: null, lower: null });
-// 위 단(둥근 수반)도 같은 물 · 배스밤 시뮬레이션 (작으니 한 단계 낮은 해상도)
-const lowerQ = (q) => ({ high: 'mid', mid: 'low', low: 'low' }[q] || 'low');
+// 위 단(둥근 수반)도 같은 물 · 배스밤 시뮬레이션 (작으니 낮은 해상도)
+const lowerQ = (q) => (q === 'high' ? 'low' : 'tiny');      // 위 수반: 작으니 훨씬 낮게
 const upMesh = basin.getObjectByName('Basin2_WaterUpper');
 const ub = new THREE.Box3().setFromObject(upMesh);
 const upCenter = new THREE.Vector3((ub.min.x + ub.max.x) / 2, ub.max.y, (ub.min.z + ub.max.z) / 2);

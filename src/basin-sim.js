@@ -15,6 +15,7 @@
 import * as THREE from 'three';
 
 export const SIM_QUALITY = {
+  tiny: { vel: 48,  dye: 96,  wave: 64,  iters: 6 },    // 작은 수반용
   low:  { vel: 64,  dye: 128, wave: 96,  iters: 8 },
   mid:  { vel: 96,  dye: 192, wave: 128, iters: 12 },
   high: { vel: 128, dye: 320, wave: 192, iters: 18 },
