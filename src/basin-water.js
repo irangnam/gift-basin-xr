@@ -73,15 +73,18 @@ float causticNet(vec2 p, float t, float w0, float w1) {
   float w = mix(w0, w1, smoothstep(0.35, 0.75, sqrt(f1)));
   return 1.0 - smoothstep(w * 0.4, w, e);
 }
+float sdEdge(vec2 xz) {                 // 물 경계까지 거리 (m, 안쪽 +): 원 · 팔각 · 가운데 구멍 · 벽
+  vec2 qq = xz - uC.xz; float ql = length(qq);
+  float d;
+  if (uOctA > 0.0) { float oa = mod(atan(qq.y, qq.x) + 0.392699, 0.785398) - 0.392699; d = uOctA - ql * cos(oa); }
+  else d = uR - ql;
+  if (uHoleR > 0.0) d = min(d, ql - uHoleR);
+  return min(d, xz.y - uWallZ);
+}
 void main() {
   vec2 uv = ((vW.xz - uC.xz) / uR + 1.0) * 0.5;
   // 경계까지 거리 (m): 원 · 팔각 · 가운데 구멍 · 벽
-  vec2 qq = vW.xz - uC.xz; float ql = length(qq);
-  float sdE;
-  if (uOctA > 0.0) { float oa = mod(atan(qq.y, qq.x) + 0.392699, 0.785398) - 0.392699; sdE = uOctA - ql * cos(oa); }
-  else sdE = uR - ql;
-  if (uHoleR > 0.0) sdE = min(sdE, ql - uHoleR);
-  sdE = min(sdE, vW.z - uWallZ);
+  float sdE = sdEdge(vW.xz);
   float rr = 1.0 - clamp(sdE / uDepthS, 0.0, 1.0);
   // 물결 노멀
   float hL = texture2D(uWave, uv - vec2(uWaveT.x, 0.0)).r, hR = texture2D(uWave, uv + vec2(uWaveT.x, 0.0)).r;
@@ -124,9 +127,10 @@ void main() {
   vec3 env = mix(vec3(0.62, 0.72, 0.68), vec3(0.95, 0.96, 0.92), smoothstep(-0.1, 0.9, Rf.y));
   vec3 col = mix(body, env, fres * 0.4);
   float ang = atan(vW.z - uC.z, vW.x - uC.x);
-  float rimR = rr + 0.012 * sin(ang * 38.0 + t * 1.3) + 0.008 * sin(ang * 71.0 - t * 2.1) + (n.x + n.z) * 0.12;
-  float rimRef = smoothstep(0.86, 0.965, rimR);
-  col = mix(col, vec3(0.93, 0.85, 0.70) * (0.9 + 0.1 * sin(ang * 23.0 + t)), rimRef * 0.42);
+  // 테두리 반사: 경계(원 · 팔각 · 기둥 둘레 어디든)에서 일정한 폭, 물결로만 살짝 일렁임
+  float rimW = 0.018 + 0.006 * vnoise(vW.xz * 40.0 + t * 0.3);
+  float rimRef = smoothstep(rimW, 0.003, sdE + (n.x + n.z) * 0.02);
+  col = mix(col, vec3(0.95, 0.90, 0.80), rimRef * 0.28);
   // 빛 반짝
   vec3 H = normalize(uLightDir + V);
   vec2 gp = vec2(wp.x * 80.0, wp.y * 120.0) + n.xz * 10.0;
@@ -153,24 +157,24 @@ void main() {
   // 둥근 거품 덩어리 (메타볼): 테두리 가까이 놓인 동글동글한 덩어리들이 부드럽게 붙고 떨어짐
   float lump = 0.0;
   if (uRimFoam > 0.01 && dRim < 0.09) {
-    float Sg = 1.0 / 0.024;
+    float Sg = 1.0 / 0.03;
     vec2 gp2 = vW.xz * Sg, ig = floor(gp2);
     for (int j = -2; j <= 2; j++) for (int i = -2; i <= 2; i++) {
       vec2 cell = ig + vec2(float(i), float(j));
       vec2 cpt = (cell + 0.2 + 0.6 * h22(cell)) / Sg;
       cpt += 0.003 * vec2(sin(t * 0.4 + cell.x), cos(t * 0.35 + cell.y));
-      float cR = min(uR - length(cpt - uC.xz), cpt.y - uWallZ);
+      float cR = sdEdge(cpt);
       float h1 = hash12(cell + 7.7), h2b = hash12(cell + 3.3);
-      float reach = 0.004 + uRimFoam * (0.015 + 0.03 * h1);
-      float wgt = smoothstep(reach, reach * 0.5, cR) * step(0.0, cR + 0.01);
-      float rad = (0.007 + 0.013 * h2b) * (0.5 + 0.5 * sqrt(uRimFoam));
+      float reach = 0.006 + uRimFoam * (0.02 + 0.03 * h1);
+      float wgt = smoothstep(reach, reach * 0.4, cR) * smoothstep(-0.004, 0.004, cR);
+      float rad = (0.011 + 0.017 * h2b) * (0.55 + 0.45 * sqrt(uRimFoam));
       vec2 dd = vW.xz - cpt;
       lump += exp(-dot(dd, dd) / (rad * rad)) * wgt;
     }
-    float strip = 0.006 + 0.012 * uRimFoam;
-    lump += exp(-pow(max(dRim - 0.008, 0.0) / strip, 2.0)) * smoothstep(0.0, 0.1, uRimFoam);
+    float strip = 0.004 + 0.008 * uRimFoam;                                // 경계에 바짝 붙은 얇은 거품 (덩어리 사이를 이어줌)
+    lump += 0.35 * exp(-pow(max(dRim - 0.006, 0.0) / strip, 2.0)) * smoothstep(0.0, 0.1, uRimFoam);
   }
-  float band = smoothstep(0.25, 0.7, lump) * 0.75;
+  float band = smoothstep(0.2, 0.95, lump) * 0.75;
   float A = clamp(foam * 1.1 + fz * 0.8 + band, 0.0, 1.0);
   float foamCov = 0.0;
   if (A > 0.02) {
@@ -197,9 +201,9 @@ void main() {
     float bo = boil(Pxz * 150.0, t, clamp(foam * 0.3, 0.0, 0.4));
     col = mix(col, vec3(1.0, 0.995, 0.985), smoothstep(0.0, 0.6, bo) * 0.25 * cov);
   }
-  float aBase = mix(0.08, 0.6, smoothstep(0.0, 0.9, depth));
+  float aBase = mix(0.2, 0.62, smoothstep(0.0, 0.9, depth));
   aBase = mix(aBase, 0.96, max(uMilk, clamp(den1 * 1.2, 0.0, 1.0)));
-  gl_FragColor = vec4(col, max(max(max(mix(aBase, 1.0, fres), glint), rimRef * 0.45), foamCov));
+  gl_FragColor = vec4(col, max(max(max(mix(aBase, 1.0, fres), glint), rimRef * 0.3), foamCov));
 }`;
 
 const UPPER_FRAG = /* glsl */`
